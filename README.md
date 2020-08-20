@@ -80,8 +80,8 @@ Install with:
 # Pytorch, CUDA and ASTRA
 conda install -n tomosipo python=3.6 pytorch=1.5 cudatoolkit=10.1 astra-toolbox   -c pytorch -c astra-toolbox/label/dev
 source activate tomosipo
-# Tomosipo
-pip install git+https://github.com/ahendriksen/tomosipo.git
+# Latest Tomosipo develop branch
+pip install git+https://github.com/ahendriksen/tomosipo.git@develop
 # Tomosipo algorithms
 pip install git+https://github.com/ahendriksen/ts_algorithms.git
 ```
