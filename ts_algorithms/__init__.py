@@ -16,5 +16,7 @@ def __get_version():
 
 __version__ = __get_version()
 
-# Import all definitions from main module.
-from .ts_algorithms import *
+# Ensure torch support from tomosipo
+import tomosipo.torch_support
+
+from .sirt import sirt
