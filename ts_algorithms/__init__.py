@@ -20,3 +20,4 @@ __version__ = __get_version()
 import tomosipo.torch_support
 
 from .sirt import sirt
+from .fbp import fbp
