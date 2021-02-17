@@ -23,3 +23,4 @@ from .sirt import sirt
 from .fbp import fbp
 from .tv_min import tv_min2d
 from .operators import operator_norm
+from .fdk import fdk
