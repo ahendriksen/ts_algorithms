@@ -157,10 +157,16 @@ def fbp(A, y, padded=True, filter=None, reject_acyclic_filter=True):
     # Scale result to make sure that fbp(A, A(x)) == x holds at least
     # to some approximation. In limited experiments, this is true for
     # this version of FBP up to 1%.
+    # *Note*: For some reason, we do not have to scale with respect to
+    # the pixel dimension that is orthogonal to the rotation axis (`u`
+    # or horizontal pixel dimension). Hence, we only scale with the
+    # other pixel dimension (`v` or vertical pixel dimension).
     vg, pg = A.volume_geometry, A.projection_geometry
-    pixel_area = np.prod(np.array(pg.det_size) / np.array(pg.det_shape))
+
+    pixel_height = (pg.det_size[0] / pg.det_shape[0])
     voxel_volume = np.prod(np.array(vg.size / np.array(vg.shape)))
-    scaling = (np.pi / pg.num_angles) * (pixel_area / voxel_volume) ** 2
+    scaling = (np.pi / pg.num_angles) * pixel_height / voxel_volume
+
     rec *= scaling
 
     return rec
