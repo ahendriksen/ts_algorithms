@@ -94,6 +94,7 @@ examples folder.
 ## Authors and contributors
 
 * **Allard Hendriksen** - *Initial work*
+* **Dirk Schut** - *FDK implementation*
 
 See also the list of [contributors](https://github.com/ahendriksen/ts_algorithms/contributors) who participated in this project.
 
