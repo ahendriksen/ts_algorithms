@@ -57,8 +57,8 @@ def fdk(A, y, padded=True, filter=None, reject_acyclic_filter=True, recalculate_
     :param y: `torch.tensor`
     :param padded: bool, is passed to ts_algorithms.fbp
     :param filter: bool, is passed to ts_algorithms.fbp
-    :reject_acyclic_filter: bool, is passed to ts_algorithms.fbp
-    :recalculate_weights: bool, experimental feature: recalculate FDK weights
+    :param reject_acyclic_filter: bool, is passed to ts_algorithms.fbp
+    :param recalculate_weights: bool, experimental feature: recalculate FDK weights
     every angle when using non-circular geometries
     :returns: reconstruction of a volume
     :rtype: `torch.tensor`
