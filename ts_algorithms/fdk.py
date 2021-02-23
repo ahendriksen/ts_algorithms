@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import tomosipo as ts
-from fbp import fbp
+from .fbp import fbp
 
 
 def fdk_weigh_projections(op, projections, recalculate_weights):
@@ -36,7 +36,8 @@ def fdk_weigh_projections(op, projections, recalculate_weights):
                   + v_pos_squared[:, None].expand([v_num_pixels, u_num_pixels])
                   + src_det_n_dist**2
             )
-            weights_mat *= (src_to_obj_n_dist / src_det_n_dist)  # scale detector to origin
+            # scale detector to origin
+            weights_mat *= (src_to_obj_n_dist / src_det_n_dist)
 
         result[:, i, :] = projections[:, i, :] * weights_mat
 
