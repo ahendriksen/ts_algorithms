@@ -45,6 +45,25 @@ def fdk_weigh_projections(op, projections, recalculate_weights):
 
 
 def fdk(A, y, padded=True, filter=None, reject_acyclic_filter=True, recalculate_weights=False):
+    """Approximately reconstruct volumes in a circular cone beam geometry using
+    the Feldkamp, Davis and Kress(FDK) algorithm
+
+    If `y` is located on GPU, the entire algorithm is executed on a single GPU.
+
+    If `y` is located in RAM (CPU in PyTorch parlance), then only the
+    foward and backprojection are executed on GPU.
+
+    :param A: `tomosipo.operator`
+    :param y: `torch.tensor`
+    :param padded: bool, is passed to ts_algorithms.fbp
+    :param filter: bool, is passed to ts_algorithms.fbp
+    :reject_acyclic_filter: bool, is passed to ts_algorithms.fbp
+    :recalculate_weights: bool, experimental feature: recalculate FDK weights
+    every angle when using non-circular geometries
+    :returns: reconstruction of a volume
+    :rtype: `torch.tensor`
+
+    """
     voxel_sizes = np.array(A.volume_geometry.size) / np.array(A.volume_geometry.shape)
     if (np.ptp(voxel_sizes) > ts.epsilon):
         raise ValueError(
