@@ -2,7 +2,6 @@ import pytest
 import torch
 import tomosipo as ts
 from ts_algorithms import fdk
-from matplotlib import pyplot as plt
 
 
 def make_box_phantom():
@@ -25,6 +24,12 @@ def test_fdk_reconstruction():
     assert torch.mean(torch.abs(rec - x)) < 0.15
     rec_nonPadded = fdk(A, y, padded=False)
     assert torch.mean(torch.abs(rec_nonPadded - x)) < 0.15
+
+    # test whether cone and cone_vec geometries yield the same result
+    A_vec = ts.operator(vg, pg.to_vec())
+    rec_vec = fdk(A_vec, y)
+    assert torch.allclose(rec_vec, rec, atol=1e-3, rtol=1e-2)
+    assert torch.mean(torch.abs(rec_vec - rec)) < 1e-6
 
     # test whether GPU and CPU calculations yield the same result
     rec_cuda = fdk(A, y.cuda()).cpu()
@@ -53,14 +58,14 @@ def test_fdk_translation_invariance():
     A0 = ts.operator(vg, pg)
     x = make_box_phantom()
     y = A0(x)
-    rec0 = fdk(A0, y, src_rot_center_dist=2)
+    rec0 = fdk(A0, y)
     bp0 = A0.T(y)
 
     # Move volume and detector far away
     T = ts.translate((1000, 1000, 1000))
     A = ts.operator(T * vg, T * pg)
 
-    rec = fdk(A, y, src_rot_center_dist=2)
+    rec = fdk(A, y)
     bp = A.T(y)
 
     # Check that backprojection still matches
@@ -68,7 +73,7 @@ def test_fdk_translation_invariance():
     # Check that fdk still matches
     assert torch.allclose(rec, rec0)
 
- 
+
 def test_fdk_scaling_invariance():
     vg = ts.volume(shape=64, size=1)
     pg = ts.cone(angles=32, shape=(64, 64), size=(2, 2), src_det_dist=2, src_orig_dist=2).to_vec()
@@ -77,17 +82,42 @@ def test_fdk_scaling_invariance():
     A0 = ts.operator(vg, pg)
     x = make_box_phantom()
 
-    rec0 = fdk(A0, A0(x), src_rot_center_dist=2)
+    rec0 = fdk(A0, A0(x))
     bp0 = A0.T(A0(x))
 
     s = 2.0
     S = ts.scale(s)
     A = ts.operator(S * vg, S * pg)
 
-    rec = fdk(A, A(x), src_rot_center_dist=2*s)
+    rec = fdk(A, A(x))
     bp = A.T(A(x))
 
     # Check that backprojection still matches (up to scaling)
     assert torch.allclose(bp / s**2, bp0)
     # Check that fdk still matches
     assert torch.allclose(rec, rec0)
+
+
+def test_fdk_off_center():
+    vg = ts.volume(shape=64, size=1)
+    pg = ts.cone(angles=32, shape=(64, 64), size=(2, 2), src_det_dist=2, src_orig_dist=2)
+
+    x = make_box_phantom()
+    # Move volume slightly
+    T1 = ts.translate((0, 0.2, 0))
+    A1 = ts.operator(T1 * vg, pg)
+    y1 = A1(x)
+    rec1 = fdk(A1, y1)
+    # Move detector slightly in opposite direction
+    # resulting in the same relative positions
+    y2 = A1(x)
+    T2 = ts.translate((0, -0.2, 0))
+    A2 = ts.operator(vg, T2 * pg.to_vec())
+    rec2 = fdk(A2, y2)
+
+    # rough test if reconstruction is close to original volume
+    assert torch.mean(torch.abs(rec1 - x)) < 0.15
+    assert torch.mean(torch.abs(rec2 - x)) < 0.15
+    # test if reconstructions are the same
+    assert torch.allclose(rec1, rec2, atol=1e-3, rtol=1e-2)
+    assert torch.mean(torch.abs(rec1 - rec2)) < 1e-6

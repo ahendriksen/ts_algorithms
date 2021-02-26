@@ -4,18 +4,18 @@ import tomosipo as ts
 from .fbp import fbp
 
 
-def fdk_weigh_projections(op, projections, src_rot_center_dist):
+def fdk_weigh_projections(A, y, src_rot_center_dist):
     # The distance of each pixel to the source is calulated in a coordinate
     # system based on the normalized u, v and normal vectors of the detector
     # because that way the distance along the v axis is constant along each
     # row and the distance along the u axis is constant along each column
     # resulting in fewer computations
     
-    src_to_det = torch.from_numpy(op.range.det_pos[0] - op.range.src_pos[0])
+    src_to_det = torch.from_numpy(A.range.det_pos[0] - A.range.src_pos[0])
     src_det_dist = torch.norm(src_to_det)
     # Load u, v vectors:
-    det_u = torch.from_numpy(op.range.det_u[0])
-    det_v = torch.from_numpy(op.range.det_v[0])
+    det_u = torch.from_numpy(A.range.det_u[0])
+    det_v = torch.from_numpy(A.range.det_v[0])
     # Calculate u, v vector lengths:
     det_u_norm = torch.norm(det_u)
     det_v_norm = torch.norm(det_v)
@@ -24,9 +24,9 @@ def fdk_weigh_projections(op, projections, src_rot_center_dist):
     src_det_v_dist = torch.dot(src_to_det, det_v) / det_v_norm
 
     #calculate the distance of each row and column of pixels along the u or v axis
-    u_num_pixels = op.range_shape[2]
+    u_num_pixels = A.range_shape[2]
     u_space = (torch.arange(u_num_pixels, dtype=torch.float64)+0.5-(u_num_pixels/2))
-    v_num_pixels = op.range_shape[0]
+    v_num_pixels = A.range_shape[0]
     v_space = (torch.arange(v_num_pixels, dtype=torch.float64)+0.5-(v_num_pixels/2))    
     
     # Calculate the minimal source to detector distance divided by the
@@ -43,20 +43,33 @@ def fdk_weigh_projections(op, projections, src_rot_center_dist):
     
     # Multiply with extra scaling factor to account for detector distance
     weights_mat *= (src_rot_center_dist / src_det_dist)
-    weights_mat = weights_mat.float().to(projections.device)
+    weights_mat = weights_mat.float().to(y.device)
 
-    result = projections.new_empty(projections.shape).to(projections.device)
+    result = y.new_empty(y.shape).to(y.device)
 
-    for i in range(op.range_shape[1]):
-        result[:, i, :] = projections[:, i, :] * weights_mat
+    for i in range(A.range_shape[1]):
+        result[:, i, :] = y[:, i, :] * weights_mat
 
     return result
 
 
+def fit_src_rot_center_dist(A):
+    vg = A.domain
+    pg = A.range
+    src_det_dist = np.dot(pg.det_normal[0], pg.det_pos[0]-pg.src_pos[0])/np.linalg.norm(pg.det_normal[0])
+
+    det_to_obj_vg = ts.from_perspective(box=pg.to_box())*vg.to_vec()
+    if np.ptp(det_to_obj_vg.pos[:,0])>ts.epsilon:
+        print("Warning: vertical object movement detected")
+
+    return src_det_dist-np.mean(det_to_obj_vg.pos[:,1])
+
+
 def fdk(A, y, padded=True, filter=None, reject_acyclic_filter=True, src_rot_center_dist=None):
     """Approximately reconstruct volumes in a circular cone beam geometry using
-    the Feldkamp, Davis and Kress(FDK) algorithm [1]. Arbtrary shifts, scaling
-    and rotations along the vertical axis are also supported.
+    the Feldkamp, Davis and Kress(FDK) algorithm [1]. Transformations on the 
+    geometry are allowed as long as the trajectory of the volume relative to
+    the source consists of a circle parallel to the horizontal plane.
 
     If `y` is located on GPU, the entire algorithm is executed on a single GPU.
 
@@ -64,17 +77,16 @@ def fdk(A, y, padded=True, filter=None, reject_acyclic_filter=True, src_rot_cent
     foward and backprojection are executed on GPU.
 
     :param A: `tomosipo.operator` The projection geometry of the operator must
-    be either cone or cone_vec. If it is cone_vec parameter src_rot_center_dist
-    must be provided too
+    be either cone or cone_vec.
     :param y: `torch.tensor` sinogram stack with the following layout:
     (num_vertical_pixels, num_angles, num_horizontal_pixels)
     :param padded: bool, is passed to ts_algorithms.fbp
     :param filter: bool, is passed to ts_algorithms.fbp
     :param reject_acyclic_filter: bool, is passed to ts_algorithms.fbp
-    :param src_rot_center_dist: the distance from the source to the
-    center of rotation of the object. Only used and required when the
-    projection geometry is cone_vec
-    :returns: reconstruction of a volume
+    :param src_rot_center_dist: optional, the distance from the source to the
+    center of rotation of the object. If not provided and A doesn't contain a
+    vector geometry A.range.src_orig_dist is used. If A does contain a vector
+    geometry, the average source to object distance is used.
     :rtype: `torch.tensor`
     
     [1] Feldkamp, L. A., Davis, L. C., & Kress, J. W. (1984). Practical Cone-Beam
@@ -84,21 +96,26 @@ def fdk(A, y, padded=True, filter=None, reject_acyclic_filter=True, src_rot_cent
     voxel_sizes = np.array(A.volume_geometry.size) / np.array(A.volume_geometry.shape)
     if np.ptp(voxel_sizes) > ts.epsilon:
         raise ValueError(
-            "The voxels in the volume are required to have the same size in every dimension.\n"
+            "The voxels in the volume must have the same size in every dimension.\n"
             f"This is not the case: voxel size = {voxel_sizes}."
         )
+
     pg = A.range
-    if isinstance(pg, ts.geometry.cone_vec.ConeVectorGeometry):
-        if src_rot_center_dist is None:
-            raise ValueError(
-                "When pg is a cone vector geometry parameter src_rot_center_dist needs to be provided"
-            )
-    elif isinstance(pg, ts.geometry.cone.ConeGeometry):
-        src_rot_center_dist = pg.src_orig_dist
-    else:
+    vg = A.domain
+    if not (isinstance(pg, ts.geometry.cone.ConeGeometry)
+        or isinstance(pg, ts.geometry.cone_vec.ConeVectorGeometry)
+    ):
         raise ValueError(
-            "The provided operator A needs to describe a cone beam geometry."
+            "The provided operator A must describe a cone beam geometry."
         )
+
+    if src_rot_center_dist is None:       
+        if (isinstance(pg, ts.geometry.cone.ConeGeometry)
+            and isinstance(vg, ts.geometry.volume.VolumeGeometry)
+        ):
+            src_rot_center_dist = pg.src_orig_dist
+        else:
+            src_rot_center_dist = fit_src_rot_center_dist(A)
         
     return fbp(
         A=A,
