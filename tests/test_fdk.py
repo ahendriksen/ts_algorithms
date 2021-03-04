@@ -301,3 +301,51 @@ def test_fdk_center_dist_scaling():
     assert torch.mean(torch.abs(rec2 - x)) < 0.15
     # test if reconstructions are the same
     assert torch.allclose(rec1, rec2)
+
+
+def test_fdk_errors():
+    # 0. uneven voxel sizes
+    vg = ts.volume(shape=64, size=(128, 64, 64))
+    pg = ts.cone(angles=1, shape=64, src_det_dist=128)
+    A = ts.operator(vg, pg)
+    with pytest.raises(ValueError):
+        fdk(A, torch.zeros(A.range_shape))
+
+    # 1. uneven pixel sizes
+    pg = ts.concatenate((
+        ts.cone(shape=64, size=64, angles=32, src_det_dist=128),
+        ts.cone(shape=64, size=128, angles=32, src_det_dist=128),
+    ))
+    vg = ts.volume(shape=64)
+    A = ts.operator(vg, pg)
+    with pytest.raises(ValueError):
+        fdk(A, torch.zeros(A.range_shape))
+
+    # 2. non-cone beam geometry
+    A = ts.operator(vg, ts.parallel())
+    with pytest.raises(TypeError):
+        fdk(A, torch.zeros(A.range_shape))
+
+    # 3. varying source-detector distance
+    vg = ts.volume(shape=64)
+    pg = ts.cone_vec(
+        shape=(96, 96),
+        src_pos=[[0, -100, 0], [0, -200, 0]],
+        det_pos=[[0, 0, 0], [0, 0, 0]],
+        det_v=[[1, 0, 0], [1, 0, 0]],
+        det_u=[[0, 0, 1], [0, 0, 1]],
+    )
+    A = ts.operator(vg, pg)
+    with pytest.warns(UserWarning):
+        fdk(A, torch.zeros(A.range_shape))
+
+    # 4. Rotation center behind source position
+    vg = ts.volume(pos=(0, -64, 0), shape=64).to_vec()
+    pg = ts.cone(shape=96, angles=1, src_det_dist=128)
+    angles = np.linspace(0, 2 * np.pi, 90)
+    R = ts.rotate(pos=(0, -129, 0), axis=(1, 0, 0), rad=angles)
+
+    A = ts.operator(R * vg, pg)
+
+    with pytest.raises(ValueError):
+        fdk(A, torch.ones(A.range_shape))
