@@ -121,3 +121,27 @@ def test_fdk_off_center():
     # test if reconstructions are the same
     assert torch.allclose(rec1, rec2, atol=1e-3, rtol=1e-2)
     assert torch.mean(torch.abs(rec1 - rec2)) < 1e-6
+
+
+def test_fdk_center_dist_scaling():
+    vg1 = ts.volume(shape=64, size=1).to_vec()
+    pg1 = ts.cone(angles=32, shape=(64, 64), size=(4, 4), src_det_dist=4, src_orig_dist=2).to_vec()
+    A1 = ts.operator(vg1, pg1)
+
+    vg2 = ts.volume(shape=64, size=2).to_vec()
+    pg2 = ts.cone(angles=32, shape=(64, 64), size=(8, 8), src_det_dist=8, src_orig_dist=4).to_vec()
+    A2 = ts.operator(vg2, pg2)
+
+    x = make_box_phantom()
+    y1 = A1(x)
+    rec1 = fdk(A1, y1)
+    y2 = A2(x)
+    rec2 = fdk(A2, y2)
+
+    print(f"mean y1 = {torch.mean(y1)}, mean y2 = {torch.mean(y2)}, mean x = {torch.mean(x)}")
+
+    # rough test if reconstruction is close to original volume
+    assert torch.mean(torch.abs(rec1 - x)) < 0.15
+    assert torch.mean(torch.abs(rec2 - x)) < 0.15
+    # test if reconstructions are the same
+    assert torch.allclose(rec1, rec2)
