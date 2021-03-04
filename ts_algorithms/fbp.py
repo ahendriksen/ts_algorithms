@@ -161,7 +161,7 @@ def fbp(A, y, padded=True, filter=None, reject_acyclic_filter=True):
     # the pixel dimension that is orthogonal to the rotation axis (`u`
     # or horizontal pixel dimension). Hence, we only scale with the
     # other pixel dimension (`v` or vertical pixel dimension).
-    vg, pg = A.volume_geometry, A.projection_geometry
+    vg, pg = A.astra_compat_vg, A.astra_compat_pg
 
     pixel_height = (pg.det_size[0] / pg.det_shape[0])
     voxel_volume = np.prod(np.array(vg.size / np.array(vg.shape)))
