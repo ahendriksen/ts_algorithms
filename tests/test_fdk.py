@@ -2,6 +2,7 @@ import pytest
 import torch
 import tomosipo as ts
 from ts_algorithms import fdk
+import numpy as np
 
 
 def make_box_phantom():
@@ -35,6 +36,161 @@ def test_fdk_reconstruction():
     rec_cuda = fdk(A, y.cuda()).cpu()
     assert torch.allclose(rec_cuda, rec, atol=1e-3, rtol=1e-2)
     assert torch.mean(torch.abs(rec_cuda - rec)) < 1e-6
+
+
+def test_fdk_off_center_cor():
+    """Test that fdk handles non-standard center of rotations correctly
+    """
+
+    vg = ts.volume(shape=64).to_vec()
+    pg = ts.cone(angles=1, shape=(96, 96), src_det_dist=130).to_vec()
+
+    angles = np.linspace(0, 2 * np.pi, 30)
+    R = ts.rotate(pos=(0, -20, -20), axis=(1, 0, 0), rad=angles)
+
+    A1 = ts.operator(vg, R * pg)
+    A2 = ts.operator(R.inv * vg, pg)
+    x = make_box_phantom()
+    y1 = A1(x)
+    y2 = A2(x)
+    assert torch.allclose(y1, y2)
+    bp1 = A1.T(y1)
+    bp2 = A2.T(y2)
+    assert torch.allclose(bp1, bp2)
+    r1 = fdk(A1, y1)
+    r2 = fdk(A2, y2)
+    print(r1.mean(), r2.mean())
+    assert torch.allclose(r1, r2)
+
+
+def test_magnification_invariance():
+    """Test fdk at various magnifications
+
+    The reconstruction from FDK should be the same regardless of
+    magnification.
+    """
+
+    vg = ts.volume(shape=64)
+    angles = np.linspace(0, 2 * np.pi, 30)
+    R = ts.rotate(pos=(0, 0, 0), axis=(1, 0, 0), rad=angles)
+
+    # Create pg with various source and detector positions as well as
+    # various pixel sizer to achieve various levels of magnification
+    # (that are undone by the larger pixels).
+    pgs = [
+        R * ts.cone_vec(
+            shape=(96, 96),
+            src_pos=[[0, -130, 0]],
+            det_pos=[[0, 130 * (m - 1), 0]],
+            det_v=[[m, 0, 0]],
+            det_u=[[0, 0, m]],
+        )
+        for m in [0.5, 1.0, 3.0]
+    ]
+
+    # Create operators, phantom, and sinograms
+    As = [ts.operator(vg, pg) for pg in pgs]
+    x = make_box_phantom()
+    ys = [A(x) for A in As]
+
+    # Make sure all sinograms are equal:
+    for y1 in ys:
+        for y2 in ys:
+            assert torch.allclose(y1, y2, atol=1e-2, rtol=1e-5)
+
+    # Make sure that all backprojections are equal:
+    bps = [A.T(y) for A, y in zip(As, ys)]
+    for bp1 in bps:
+        for bp2 in bps:
+            assert torch.allclose(bp1, bp2, atol=1e-2, rtol=1e-5)
+
+    # And finally check the reconstructions
+    recs = [fdk(A, y) for A, y in zip(As, ys)]
+    for r1 in recs:
+        for r2 in recs:
+            assert torch.allclose(r1, r2, atol=1e-2, rtol=1e-5)
+
+
+def test_fdk_off_center_cor_subsets():
+    """Test that fdk handles non-standard center of rotations correctly
+
+    We rotate around a non-standard center of rotation and also check
+    that the reconstruction of a subset equals the subset of a
+    reconstruction.
+    """
+
+    vg = ts.volume(shape=64)
+    pg = ts.cone_vec(
+        shape=(96, 96),
+        src_pos=[[3, -130, -10]],
+        det_pos=[[0, 0, 0]],
+        det_v=[[1, 0, 0]],
+        det_u=[[0, 0, 1]],
+    )
+    pg = ts.cone(angles=1, shape=(96, 96), src_det_dist=130).to_vec()
+
+    angles = np.linspace(0, 2 * np.pi, 32)
+    R = ts.rotate(pos=(0, -20, 20), axis=(1, 0,  0), rad=angles)
+
+    sub_slice = (slice(0, 32), slice(0, 32), slice(0, 32))
+    vg_sub = vg[sub_slice]
+    print(vg_sub.shape)
+    A = ts.operator(vg, R.inv * pg)
+    A_sub = ts.operator(vg_sub, R.inv * pg)
+
+    x = make_box_phantom()
+    y = A(x)
+    bp = A.T(y)
+    bp_sub = A_sub.T(y)
+    print(bp.shape, bp_sub.shape, bp[sub_slice].shape)
+    assert torch.allclose(bp[sub_slice], bp_sub, atol=1e-1, rtol=1e-6)
+
+    r = fdk(A, y)
+    r_sub = fdk(A_sub, y)
+    assert torch.allclose(r[sub_slice], r_sub, atol=1e-1, rtol=1e-6)
+
+
+def test_fdk_rotating_volume():
+    """Test that fdk handles volume_vec geometries correctly
+
+    Suppose we have
+    - vg: volume geometry
+    - pg: cone geometry  (single angle)
+    - R: a rotating transform
+
+    Then we must have that the following two operators are equal:
+
+    ts.operator(vg, R * pg) == ts.operator(R.inv * vg, pg)
+
+    in the sense that equal inputs yield equal outputs.
+
+    Let's call these operators A1 (lhs) and A2 (rhs). Then we
+    obviously want that
+
+    fbp(A1, y) == fbp(A2, y).
+
+    That is what we are testing here.
+    """
+
+    vg = ts.volume(shape=64).to_vec()
+    pg = ts.cone(angles=1, shape=(96, 96), src_det_dist=130).to_vec()
+
+    angles = np.linspace(0, 2 * np.pi, 30)
+    R = ts.rotate(pos=0, axis=(1, 0, 0), rad=angles)
+
+    A1 = ts.operator(vg, R * pg)
+    A2 = ts.operator(R.inv * vg, pg)
+    x = make_box_phantom()
+    y1 = A1(x)
+    y2 = A2(x)
+    assert torch.allclose(y1, y2)
+    bp1 = A1.T(y1)
+    bp2 = A2.T(y2)
+    assert torch.allclose(bp1, bp2)
+    r1 = fdk(A1, y1)
+    r2 = fdk(A2, y2)
+    print(r1.mean(), r2.mean())
+    assert torch.allclose(r1, r2)
 
 
 def test_fdk_anisotropic_pixels():
