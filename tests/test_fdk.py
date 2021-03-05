@@ -2,6 +2,7 @@ import pytest
 import torch
 import tomosipo as ts
 from ts_algorithms import fdk
+from ts_algorithms.fdk import fdk_weigh_projections
 import numpy as np
 
 
@@ -12,30 +13,100 @@ def make_box_phantom():
     return x
 
 
-def test_fdk_reconstruction():
-    vg = ts.volume(shape=64, size=1)
-    pg = ts.cone(angles=32, shape=(64, 64), size=(2, 2), src_det_dist=2, src_orig_dist=2)
+def astra_fdk(A, y):
+    vg, pg = A.astra_compat_vg, A.astra_compat_pg
 
+    vd = ts.data(vg)
+    pd = ts.data(pg, y.cpu().numpy())
+    ts.fdk(vd, pd)
+    # XXX: disgregard clean up of vd and pd (tests are short-lived and
+    # small)
+    return torch.from_numpy(vd.data.copy()).to(y.device)
+
+
+# Standard parameters
+vg64 = [
+    ts.volume(shape=64),          # voxel size == 1
+    ts.volume(shape=64, size=1),  # volume size == 1
+    ts.volume(shape=64, size=1),  # idem
+]
+pg64 = [
+    ts.cone(angles=96, shape=96, src_det_dist=192),  # pixel size == 1
+    ts.cone(angles=96, shape=96, size=1.5, src_det_dist=3),  # detector size == 1 / 64
+    ts.cone(angles=96, shape=96, size=3, src_det_dist=3, src_orig_dist=3),  # magnification 2
+]
+phantom64 = [
+    make_box_phantom(),
+    make_box_phantom(),
+    make_box_phantom(),
+]
+
+
+@pytest.mark.parametrize("vg, pg, x", zip(vg64, pg64, phantom64))
+def test_astra_compatibility(vg, pg, x):
     A = ts.operator(vg, pg)
-    x = make_box_phantom()
+    y = A(x)
+    rec_ts = fdk(A, y)
+    rec_astra = astra_fdk(A, y)
+
+    print(abs(rec_ts - rec_astra).max())
+    assert torch.allclose(rec_ts, rec_astra, atol=5e-4)
+
+
+def test_fdk_flipped_cone_geometry():
+    vg = ts.volume(shape=64)
+    angles = np.linspace(0, 2 * np.pi, 96)
+    R = ts.rotate(pos=0, axis=(1, 0, 0), rad=angles)
+    pg = ts.cone_vec(
+            shape=(96, 96),
+            src_pos=[[0, 130, 0]],  # usually -130
+            det_pos=[[0, 0, 0]],
+            det_v=[[1, 0, 0]],
+            det_u=[[0, 0, 1]],
+    )
+    A = ts.operator(vg, R * pg)
+
+    fdk(A, torch.ones(A.range_shape))
+
+
+@pytest.mark.parametrize("vg, pg, x", zip(vg64, pg64, phantom64))
+def test_fdk_inverse(vg, pg, x):
+    """Rough test if reconstruction is close to original volume.
+
+    The mean error must be less than 10%. The sharp edges of the box
+    phantom make this a difficult test case.
+    """
+    A = ts.operator(vg, pg)
     y = A(x)
 
-    # rough test if reconstruction is close to original volume
     rec = fdk(A, y)
-    assert torch.mean(torch.abs(rec - x)) < 0.15
-    rec_nonPadded = fdk(A, y, padded=False)
-    assert torch.mean(torch.abs(rec_nonPadded - x)) < 0.15
+    assert torch.mean(torch.abs(rec - x)) < 0.1
 
-    # test whether cone and cone_vec geometries yield the same result
+
+@pytest.mark.parametrize("vg, pg, x", zip(vg64, pg64, phantom64))
+def test_fdk_cone_vec(vg, pg, x):
+    """ Test that cone and cone_vec yield same result."""
+    A = ts.operator(vg, pg)
     A_vec = ts.operator(vg, pg.to_vec())
-    rec_vec = fdk(A_vec, y)
-    assert torch.allclose(rec_vec, rec, atol=1e-3, rtol=1e-2)
-    assert torch.mean(torch.abs(rec_vec - rec)) < 1e-6
+    y = A(x)
 
-    # test whether GPU and CPU calculations yield the same result
+    rec = fdk(A, y)
+    rec_vec = fdk(A_vec, y)
+    assert torch.allclose(rec, rec_vec, atol=5e-4)
+
+
+@pytest.mark.parametrize("vg, pg, x", zip(vg64, pg64, phantom64))
+def test_fdk_gpu(vg, pg, x):
+    """ Test that cuda and cpu tensors yield same result."""
+    A = ts.operator(vg, pg)
+    y = A(x)
+
+    rec_cpu = fdk(A, y)
     rec_cuda = fdk(A, y.cuda()).cpu()
-    assert torch.allclose(rec_cuda, rec, atol=1e-3, rtol=1e-2)
-    assert torch.mean(torch.abs(rec_cuda - rec)) < 1e-6
+
+    # The atol is necessary because the ASTRA backprojection appears
+    # to differ slightly when given cpu and gpu arguments...
+    assert torch.allclose(rec_cpu, rec_cuda, atol=5e-4)
 
 
 def test_fdk_off_center_cor():
@@ -148,6 +219,45 @@ def test_fdk_off_center_cor_subsets():
     r = fdk(A, y)
     r_sub = fdk(A_sub, y)
     assert torch.allclose(r[sub_slice], r_sub, atol=1e-1, rtol=1e-6)
+
+
+
+@pytest.mark.parametrize("vg, pg, x", zip(vg64, pg64, phantom64))
+def test_fdk_split_detector(vg, pg, x):
+    """Split detector in four quarters
+
+    Test that pre-weighting each quarter individually is the same as
+    pre-weighting the full detector at once.
+    """
+
+    pg = pg.to_vec()
+
+    # determine the half-length of the detector shape:
+    n, m = np.array(pg.det_shape) // 2
+
+    # Generate slices to split the detector of a projection geometry
+    # into four slices.
+    pg_slices = [
+        np.s_[:, :n, :m],
+        np.s_[:, :n, m:],
+        np.s_[:, n:, :m],
+        np.s_[:, n:, m:],
+    ]
+    # Change slices to be in 'sinogram' form with angles in the middle.
+    sino_slices = [(slice_v, slice_angles, slice_u) for (slice_angles, slice_v, slice_u) in pg_slices]
+
+    A = ts.operator(vg, pg)
+    y = A(x)
+
+    As = [ts.operator(vg, pg[pg_slice]) for pg_slice in pg_slices]
+
+    w = fdk_weigh_projections(A, y)
+    sub_ws = [fdk_weigh_projections(A_sub, y[sino_slice].contiguous()) for A_sub, sino_slice in zip(As, sino_slices)]
+
+    for sub_w, sino_slice in zip(sub_ws, sino_slices):
+        abs_diff = abs(w[sino_slice] - sub_w)
+        print(sub_w.max(), abs_diff.max().item(), abs_diff.mean().item())
+        assert torch.allclose(w[sino_slice], sub_w, rtol=1e-2)
 
 
 def test_fdk_rotating_volume():
@@ -341,11 +451,11 @@ def test_fdk_errors():
 
     # 4. Rotation center behind source position
     vg = ts.volume(pos=(0, -64, 0), shape=64).to_vec()
-    pg = ts.cone(shape=96, angles=1, src_det_dist=128)
+    pg = ts.cone(shape=96, angles=1, src_det_dist=128).to_vec()
     angles = np.linspace(0, 2 * np.pi, 90)
     R = ts.rotate(pos=(0, -129, 0), axis=(1, 0, 0), rad=angles)
 
     A = ts.operator(R * vg, pg)
 
-    with pytest.raises(ValueError):
+    with pytest.warns(UserWarning):
         fdk(A, torch.ones(A.range_shape))

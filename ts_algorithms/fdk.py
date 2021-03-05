@@ -15,28 +15,34 @@ def fdk_weigh_projections(A, y):
     vg, pg = A.domain, A.range
 
     T = ts.from_perspective(
-        pos=pg.det_pos,
+        pos=pg.src_pos,
         w=pg.det_v/np.linalg.norm(pg.det_v[0]),
         v=pg.det_normal/np.linalg.norm(pg.det_normal[0]),
         u=pg.det_u/np.linalg.norm(pg.det_u[0])
     )
-
+    # We have:
+    # - the source position is placed at the origin
+    # - the z axis is parallel to the detector v axis
+    # - the y axis is orthogonal to the detecor plane
+    # - the x axis is parallel to the detector u axis
     vg_fixed, pg_fixed = T * vg.to_vec(), T * pg.to_vec()
 
     ###########################################################################
     #                    Determine source-detector distance                   #
     ###########################################################################
-    # Read of source-detector distance in the y coordinate of the
-    # transformed source position.
-    src_det_dists = pg_fixed.src_pos[:, 1]
-    src_det_dist = src_det_dists.mean()
+    # The source is located on the origin. So the source-detector
+    # distance can be read of from the detector position. We warn if
+    # the detector position is not constant (and use the mean detector
+    # position regardless).
+    det_positions = pg_fixed.det_pos
+    det_pos = det_positions.mean(axis=0)
 
-    if np.ptp(src_det_dists) > ts.epsilon:
+    if np.ptp(det_positions, axis=0).max() > ts.epsilon:
         warnings.warn(
             f"The source to detector distance is not constant. "
-            f"It has a variation of {np.ptp(src_det_dists): 0.2e}. "
+            f"It has a variation of {np.ptp(det_positions, axis=0)}. "
             f"This may cause unexpected results in the reconstruction. "
-            f"The mean source to detector distance ({src_det_dist: 0.2e}) "
+            f"The mean source to detector distance ({det_pos}) "
             "has been used to compute the reconstruction. "
         )
 
@@ -45,15 +51,20 @@ def fdk_weigh_projections(A, y):
     ###########################################################################
     # Read of source-object distance in the y coordinate of the
     # transformed volume position.
-    src_obj_dists = vg_fixed.pos[:, 1] - src_det_dists
+    obj_positions = vg_fixed.pos[:, 1]
 
     # Take the rotation center as the mean of the volume positions.
-    src_rot_center_dist = src_obj_dists.mean()
+    rot_center_pos = obj_positions.mean()
+    src_rot_center_dist = abs(rot_center_pos)
 
-    if src_rot_center_dist < 0.0:
-        raise ValueError(
-            "Rotation center is behind source position. "
-            "Consider adjusting your geometry to obtain a reconstruction. "
+    # Check that the center of rotation is "in front" of the source
+    # beam. Warn otherwise. We want to avoid the situation:
+    # rot_center  src ----> det
+    #    ⊙         .  ---->  |   or    | <----  .    ⊙
+    if np.sign(rot_center_pos) != np.sign(det_pos[1]):
+        warnings.warn(
+            "Rotation center of volume is behind source position. "
+            "Adjust your geometry to obtain a better reconstruction. "
         )
 
     ###########################################################################
@@ -64,21 +75,19 @@ def fdk_weigh_projections(A, y):
 
     v_range = torch.arange(num_v, dtype=torch.float64) - (num_v - 1) / 2
     u_range = torch.arange(num_u, dtype=torch.float64) - (num_u - 1) / 2
-    u_pos_squared = (u_size * u_range) ** 2
-    v_pos_squared = (v_size * v_range) ** 2
+    u_pos_squared = (det_pos[2] + u_size * u_range) ** 2
+    v_pos_squared = (det_pos[0] + v_size * v_range) ** 2
 
     # Determine source-pixel distance for each pixel on the detector.
     src_pixel_dist = torch.sqrt(
-          u_pos_squared[None, :] + v_pos_squared[:, None] + src_det_dist**2
+          u_pos_squared[None, :] + v_pos_squared[:, None] + det_pos[1]**2
     )
 
     ###########################################################################
     #                           Determine weighting                           #
     ###########################################################################
-    weights_mat = src_det_dist / src_pixel_dist
-
     # Multiply with extra scaling factor to account for detector distance
-    weights_mat *= (src_rot_center_dist / src_det_dist)
+    weights_mat = src_rot_center_dist / src_pixel_dist
     weights_mat = weights_mat.float().to(y.device)
 
     return y * weights_mat[:, None, :]
