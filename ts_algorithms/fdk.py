@@ -9,7 +9,7 @@ from tomosipo.geometry import (
 from .fbp import fbp
 
 
-def fdk_weigh_projections(A, y):
+def fdk_weigh_projections(A, y, overwrite_y):
     # Move to perspective of detector without changing the scale of
     # the coordinate axes.
     vg, pg = A.domain, A.range
@@ -90,10 +90,14 @@ def fdk_weigh_projections(A, y):
     weights_mat = src_rot_center_dist / src_pixel_dist
     weights_mat = weights_mat.float().to(y.device)
 
-    return y * weights_mat[:, None, :]
+    if overwrite_y:
+        y *= weights_mat[:, None, :]
+        return y
+    else:
+        return y * weights_mat[:, None, :]
 
 
-def fdk(A, y, padded=True, filter=None, reject_acyclic_filter=True):
+def fdk(A, y, padded=True, filter=None, reject_acyclic_filter=True, batch_size=10, overwrite_y=False):
     """Compute FDK reconstruction
 
     Approximately reconstruct volumes in a circular cone beam geometry using
@@ -113,11 +117,12 @@ def fdk(A, y, padded=True, filter=None, reject_acyclic_filter=True):
     :param padded: bool, is passed to ts_algorithms.fbp
     :param filter: bool, is passed to ts_algorithms.fbp
     :param reject_acyclic_filter: bool, is passed to ts_algorithms.fbp
-    :param src_rot_center_dist: optional, the distance from the source to the
-    center of rotation of the object. If not provided and A doesn't contain a
-    vector geometry A.range.src_orig_dist is used. If A does contain a vector
-    geometry, the average source to object distance is used.
-    :rtype: `torch.tensor`
+    :param batch_size: int, is passed to ts_algorithms.fbp
+    :param overwrite_y: bool, Specifies whether to overwrite y with the
+    filtered version while running this function. If overwrite_y==False an
+    extra block of memory with the size of y needs to be allocated, so use
+    overwrite_y==True if you would otherwise run out of memory. Choose
+    overwrite_y==False if you still want to use y after calling this function.
 
     [1] Feldkamp, L. A., Davis, L. C., & Kress, J. W. (1984). Practical Cone-Beam
     Algorithm. Journal of the Optical Society of America A, 1(6), 612.
@@ -150,7 +155,7 @@ def fdk(A, y, padded=True, filter=None, reject_acyclic_filter=True):
         )
 
     # Pre-weigh projections by the inverse of the source-to-pixel distance
-    y_weighted = fdk_weigh_projections(A, y)
+    y_weighted = fdk_weigh_projections(A, y, overwrite_y)
 
     # Compute a normal FBP reconstruction
     return fbp(
@@ -158,5 +163,7 @@ def fdk(A, y, padded=True, filter=None, reject_acyclic_filter=True):
         y=y_weighted,
         padded=padded,
         filter=filter,
-        reject_acyclic_filter=reject_acyclic_filter
+        reject_acyclic_filter=reject_acyclic_filter,
+        batch_size=batch_size,
+        overwrite_y=True
     )

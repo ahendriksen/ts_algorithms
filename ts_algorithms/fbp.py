@@ -1,7 +1,6 @@
 import tomosipo as ts
 import torch
 import numpy as np
-import math
 
 
 def num_pad(width):
@@ -16,6 +15,13 @@ def num_pad(width):
     # num_padding < num_padding_left
     num_pad_left = num_padding // 2
     return (num_pad_left, num_padding - num_pad_left)
+
+
+def total_padded_width(width):
+    if width % 2 == 0:
+        return 2*width
+    else:
+        return 2*width + 2
 
 
 def pad(sino):
@@ -103,13 +109,21 @@ def cmul(a, b):
     return torch.stack((outr, outi), dim=-1)
 
 
-def fbp(A, y, padded=True, filter=None, reject_acyclic_filter=True):
-    """Compute the FBP algorithm
+def fbp(A, y, padded=True, filter=None, reject_acyclic_filter=True, batch_size=10, overwrite_y=False):
+    """Compute a reconstruction with the FBP algorithm
 
     :param A: `tomosipo.operator`
     :param y: `torch.tensor`
-    :param padded:
-    :param filter:
+    :param padded: bool
+    :param filter: `torch.tensor`
+    :param batch_size: int, Specifies how many projection images will be
+    filtered at the same time. Increasing the batch_size will increase the used
+    memory, but it may make the computation time lower.
+    :param overwrite_y: bool, Specifies whether to overwrite y with the
+    filtered version while running this function. If overwrite_y==False an
+    extra block of memory with the size of y needs to be allocated, so use
+    overwrite_y==True if you would otherwise run out of memory. Choose
+    overwrite_y==False if you still want to use y after calling this function.
     :returns:
     :rtype:
 
@@ -117,20 +131,23 @@ def fbp(A, y, padded=True, filter=None, reject_acyclic_filter=True):
 
     original_width = y.shape[-1]
 
-    if padded:
-        y = pad(y)
-        # Make filter wider
-        if filter is not None:
-            filter = cycle_filter(filter, y.shape[-1])
+    if overwrite_y:
+        y_filtered = y
+    else:
+        y_filtered = torch.empty_like(y)
 
-    # Use Ram-Lak filter by default.
     if filter is None:
-        filter = ram_lak(y.shape[-1]).to(y.device)
+        if padded:
+            filter = ram_lak(total_padded_width(y.shape[-1]))
+        else:
+            filter = ram_lak(y.shape[-1])
+    else:
+        if padded:
+            filter = cycle_filter(filter, total_padded_width(y.shape[-1]))
 
+    filter = filter.to(y.device)
     filter_width = filter.shape[-1]
 
-    # Fourier transform of sinogram and filter.
-    y_f = rfft(y)
     h_f = rfft(filter)
     if h_f[..., 1].mean() > ts.epsilon and reject_acyclic_filter:
         raise ValueError(
@@ -138,18 +155,31 @@ def fbp(A, y, padded=True, filter=None, reject_acyclic_filter=True):
         )
     # Remove complex part of h_f
     h_f = h_f[:, 0:1]
-    # Filter the sinogram using "complex multiplication" with real
-    # part of h_f:
-    y_f *= h_f
 
-    y_filtered = irfft(y_f, filter_width)
+    for batch_start in range(0, y.shape[1], batch_size):
+        batch_end = min(batch_start + batch_size, y.shape[1])
 
-    if padded:
-        y_filtered = unpad(y_filtered, original_width)
-        # By removing the padding, y_filtered has become
-        # discontiguous. ASTRA only accepts contiguous arrays. So we
-        # allocate a new contiguous array.
-        y_filtered = y_filtered.contiguous()
+        y_selection = y[:, batch_start:batch_end, :]
+
+        if padded:
+            y_selection = pad(y_selection)
+
+        # Fourier transform of sinogram.
+        y_f = rfft(y_selection)
+        # Filter the sinogram using "complex multiplication" with real
+        # part of h_f:
+        y_f *= h_f
+
+        y_irfft = irfft(y_f, filter_width)
+
+        if padded:
+            y_irfft = unpad(y_irfft, original_width)
+            # By removing the padding, y_irfft has become
+            # discontiguous. ASTRA only accepts contiguous arrays. So we
+            # allocate a new contiguous array.
+            y_irfft = y_irfft.contiguous()
+
+        y_filtered[:, batch_start:batch_end, :] = y_irfft
 
     # Backproject the filtered sinogram to obtain a reconstruction
     rec = A.T(y_filtered)

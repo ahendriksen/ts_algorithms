@@ -87,3 +87,33 @@ def test_fbp_devices():
 
         fbp(A, y.to(dev))
         fbp(A, y.to(dev), padded=False)
+
+
+def test_fbp_overwrite_y():
+    vg = ts.volume(shape=64).to_vec()
+    pg = ts.parallel(angles=32, shape=(64, 80)).to_vec()
+
+    # Create sinogram and reconstruct with and without overwrite_y
+    A = ts.operator(vg, pg)
+    x = make_box_phantom()
+    y = A(x)
+    rec1 = fbp(A, y, overwrite_y=False)
+    rec2 = fbp(A, y, overwrite_y=True)
+
+    # Check that reconstructions with overwrite_y is the same for True and False
+    assert torch.allclose(rec1, rec2)
+
+
+def test_fbp_batch_size():
+    vg = ts.volume(shape=64).to_vec()
+    pg = ts.parallel(angles=32, shape=(64, 80)).to_vec()
+
+    # Create sinogram and reconstruct with batch size 1 and 32
+    A = ts.operator(vg, pg)
+    x = make_box_phantom()
+    y = A(x)
+    rec1 = fbp(A, y, batch_size=1)
+    rec2 = fbp(A, y, batch_size=32)
+
+    # Check that reconstructions with different batch sizes are the same
+    assert torch.allclose(rec1, rec2)

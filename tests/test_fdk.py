@@ -221,7 +221,6 @@ def test_fdk_off_center_cor_subsets():
     assert torch.allclose(r[sub_slice], r_sub, atol=1e-1, rtol=1e-6)
 
 
-
 @pytest.mark.parametrize("vg, pg, x", zip(vg64, pg64, phantom64))
 def test_fdk_split_detector(vg, pg, x):
     """Split detector in four quarters
@@ -251,8 +250,8 @@ def test_fdk_split_detector(vg, pg, x):
 
     As = [ts.operator(vg, pg[pg_slice]) for pg_slice in pg_slices]
 
-    w = fdk_weigh_projections(A, y)
-    sub_ws = [fdk_weigh_projections(A_sub, y[sino_slice].contiguous()) for A_sub, sino_slice in zip(As, sino_slices)]
+    w = fdk_weigh_projections(A, y, False)
+    sub_ws = [fdk_weigh_projections(A_sub, y[sino_slice].contiguous(), False) for A_sub, sino_slice in zip(As, sino_slices)]
 
     for sub_w, sino_slice in zip(sub_ws, sino_slices):
         abs_diff = abs(w[sino_slice] - sub_w)
@@ -459,3 +458,33 @@ def test_fdk_errors():
 
     with pytest.warns(UserWarning):
         fdk(A, torch.ones(A.range_shape))
+
+
+def test_fdk_overwrite_y():
+    vg = ts.volume(shape=64, size=1)
+    pg = ts.cone(angles=32, shape=(64, 64), size=(2, 2), src_det_dist=2, src_orig_dist=2).to_vec()
+
+    # Create sinogram and reconstruct with and without overwrite_y
+    A = ts.operator(vg, pg)
+    x = make_box_phantom()
+    y = A(x)
+    rec1 = fdk(A, y, overwrite_y=False)
+    rec2 = fdk(A, y, overwrite_y=True)
+
+    # Check that reconstructions with overwrite_y is the same for True and False
+    assert torch.allclose(rec1, rec2)
+
+
+def test_fdk_batch_size():
+    vg = ts.volume(shape=64, size=1)
+    pg = ts.cone(angles=32, shape=(64, 64), size=(2, 2), src_det_dist=2, src_orig_dist=2).to_vec()
+
+    # Create sinogram and reconstruct with batch size 1 and 32
+    A = ts.operator(vg, pg)
+    x = make_box_phantom()
+    y = A(x)
+    rec1 = fdk(A, y, batch_size=1)
+    rec2 = fdk(A, y, batch_size=32)
+
+    # Check that reconstructions with different batch sizes are the same
+    assert torch.allclose(rec1, rec2)
