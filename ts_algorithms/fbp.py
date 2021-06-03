@@ -17,13 +17,6 @@ def num_pad(width):
     return (num_pad_left, num_padding - num_pad_left)
 
 
-def total_padded_width(width):
-    if width % 2 == 0:
-        return 2*width
-    else:
-        return 2*width + 2
-
-
 def pad(sino):
     (num_slices, num_angles, num_pixels) = sino.shape
     num_pad_left, num_pad_right = num_pad(num_pixels)
@@ -48,40 +41,6 @@ def cycle_filter(h, width):
     return out
 
 
-def rfft(x):
-    return torch.rfft(x, signal_ndim=1, normalized=False)
-
-
-# def fft_filter(x):
-#     # fourier transform of filter
-#     fourier_filter = fft(x)
-#     # Ensure complex dimension equal to real dimension
-#     # (forgot why this is necessary...)
-#     fourier_filter = fourier_filter[:, 0][:, None]
-#     return fourier_filter
-
-
-def irfft(x, out_width=None):
-    if out_width is None:
-        out_width = x.shape[-1]
-    return torch.irfft(
-        x,
-        signal_ndim=1,
-        signal_sizes=(out_width,),
-        normalized=False
-    )
-
-
-def filter_sino(sino, fourier_filter):
-    (num_slices, num_angles, num_pixels) = sino.shape
-
-    fourier_sino = rfft(sino)
-    fourier_sino *= fourier_filter
-
-    out_sino = irfft(fourier_sino, out_width=num_pixels)
-    return out_sino
-
-
 def ram_lak(n):
     # Returns a ram_lak filter in filter space.
     # Complex component equals zero.
@@ -99,87 +58,115 @@ def ram_lak(n):
     return filter
 
 
-def cmul(a, b):
-    ar, ai = a[..., 0], a[..., 1]
-    br, bi = b[..., 0], b[..., 1]
+def filter_sino(y, filter=None, padded=True):
+    """Filter sinogram for use in FBP
 
-    outr = ar * br - ai * bi
-    outi = ar * bi + ai * br
+    :param y: `torch.tensor`
+        A three-dimensional tensor in sinogram format (height, num_angles, width).
 
-    return torch.stack((outr, outi), dim=-1)
+    :param filter: `torch.tensor` (optional)
+        If not specified, the ram-lak filter is used. This should be
+        one-dimensional tensor that is as wide as the sinogram `y`.
+
+    :param padded: `bool`
+        By default, the reconstruction is zero-padded as it is
+        filtered. Padding can be skipped by setting `padded=False`.
+
+    :returns:
+        A sinogram filtered with the provided filter.
+    :rtype: `torch.tensor`
+    """
+    if filter is None:
+        # Use Ram-Lak filter by default.
+        filter = ram_lak(y.shape[-1]).to(y.device)
+
+    # Add padding
+    original_width = y.shape[-1]
+    if padded:
+        y = pad(y)
+        filter = cycle_filter(filter, y.shape[-1])
+
+    # Fourier transform of sinogram and filter.
+    y_f = torch.fft.rfft(y)
+    h_f = torch.fft.rfft(filter)
+
+    # Filter the sinogram using complex multiplication:
+    y_f *= h_f
+
+    # Invert fourier transform.
+    # Make sure inverted data matches the shape of y (for
+    # sinograms with odd width).
+    y_filtered = torch.fft.irfft(y_f, n=y.shape[-1])
+
+    # Remove padding
+    if padded:
+        y_filtered = unpad(y_filtered, original_width)
+        # By removing the padding, y_filtered has become
+        # discontiguous. ASTRA only accepts contiguous arrays. So we
+        # allocate a new contiguous array.
+        y_filtered = y_filtered.contiguous()
+
+    return y_filtered
 
 
-def fbp(A, y, padded=True, filter=None, reject_acyclic_filter=True, batch_size=10, overwrite_y=False):
-    """Compute a reconstruction with the FBP algorithm
+def fbp(A, y, padded=True, filter=None, batch_size=10, overwrite_y=False):
+    """Compute FBP reconstruction
+
+    If `y` is located on GPU, the entire algorithm is executed on a single GPU.
+
+    If `y` is located in RAM (CPU in PyTorch parlance), then only the
+    foward and backprojection are executed on GPU.
+
+    The algorithm is explained in detail in [1].
 
     :param A: `tomosipo.operator`
+        The tomographic operator.
+
     :param y: `torch.tensor`
-    :param padded: bool
-    :param filter: `torch.tensor`
-    :param batch_size: int, Specifies how many projection images will be
-    filtered at the same time. Increasing the batch_size will increase the used
-    memory, but it may make the computation time lower.
-    :param overwrite_y: bool, Specifies whether to overwrite y with the
-    filtered version while running this function. If overwrite_y==False an
-    extra block of memory with the size of y needs to be allocated, so use
-    overwrite_y==True if you would otherwise run out of memory. Choose
-    overwrite_y==False if you still want to use y after calling this function.
+        A three-dimensional tensor in sinogram format (height, num_angles, width).
+
+    :param padded: `bool`
+        By default, the reconstruction is zero-padded as it is
+        filtered. Padding can be skipped by setting `padded=False`.
+
+    :param filter: `torch.tensor` (optional)
+        If not specified, the ram-lak filter is used. This should be
+        one-dimensional tensor that is as wide as the sinogram `y`.
+
+    :param batch_size: `int`
+        Specifies how many projection images will be filtered at the
+        same time. Increasing the batch_size will increase the used
+        memory and it may marginally reduce the computation time.
+
+    :param overwrite_y: `bool`
+        Specifies whether to overwrite y with the filtered version
+        while running this function. Choose `overwrite_y=False` if you
+        still want to use y after calling this function. Choose
+        `overwrite_y=True` if you would otherwise run out of memory.
+
     :returns:
-    :rtype:
+        A reconstruction computed using the FBP algorithm.
+
+    :rtype: `torch.tensor`
+
+    [1] Zeng, G. L., Revisit of the ramp filter, IEEE Transactions on
+    Nuclear Science, 62(1), 131–136 (2015).
+    http://dx.doi.org/10.1109/tns.2014.2363776
 
     """
-
-    original_width = y.shape[-1]
 
     if overwrite_y:
         y_filtered = y
     else:
         y_filtered = torch.empty_like(y)
 
-    if filter is None:
-        if padded:
-            filter = ram_lak(total_padded_width(y.shape[-1]))
-        else:
-            filter = ram_lak(y.shape[-1])
-    else:
-        if padded:
-            filter = cycle_filter(filter, total_padded_width(y.shape[-1]))
-
-    filter = filter.to(y.device)
-    filter_width = filter.shape[-1]
-
-    h_f = rfft(filter)
-    if h_f[..., 1].mean() > ts.epsilon and reject_acyclic_filter:
-        raise ValueError(
-            "Filter has complex components in Fourier domain. Make sure that the filter is cyclic"
-        )
-    # Remove complex part of h_f
-    h_f = h_f[:, 0:1]
-
+    # Filter the sinogram in batches
     for batch_start in range(0, y.shape[1], batch_size):
         batch_end = min(batch_start + batch_size, y.shape[1])
+        batch = y[:, batch_start:batch_end, :]
+        batch_filtered = filter_sino(batch, filter=filter, padded=padded)
 
-        y_selection = y[:, batch_start:batch_end, :]
-
-        if padded:
-            y_selection = pad(y_selection)
-
-        # Fourier transform of sinogram.
-        y_f = rfft(y_selection)
-        # Filter the sinogram using "complex multiplication" with real
-        # part of h_f:
-        y_f *= h_f
-
-        y_irfft = irfft(y_f, filter_width)
-
-        if padded:
-            y_irfft = unpad(y_irfft, original_width)
-            # By removing the padding, y_irfft has become
-            # discontiguous. ASTRA only accepts contiguous arrays. So we
-            # allocate a new contiguous array.
-            y_irfft = y_irfft.contiguous()
-
-        y_filtered[:, batch_start:batch_end, :] = y_irfft
+        y_filtered[:, batch_start:batch_end, :] = batch_filtered
 
     # Backproject the filtered sinogram to obtain a reconstruction
     rec = A.T(y_filtered)

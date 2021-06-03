@@ -97,7 +97,7 @@ def fdk_weigh_projections(A, y, overwrite_y):
         return y * weights_mat[:, None, :]
 
 
-def fdk(A, y, padded=True, filter=None, reject_acyclic_filter=True, batch_size=10, overwrite_y=False):
+def fdk(A, y, padded=True, filter=None, batch_size=10, overwrite_y=False):
     """Compute FDK reconstruction
 
     Approximately reconstruct volumes in a circular cone beam geometry using
@@ -116,7 +116,6 @@ def fdk(A, y, padded=True, filter=None, reject_acyclic_filter=True, batch_size=1
     (num_vertical_pixels, num_angles, num_horizontal_pixels)
     :param padded: bool, is passed to ts_algorithms.fbp
     :param filter: bool, is passed to ts_algorithms.fbp
-    :param reject_acyclic_filter: bool, is passed to ts_algorithms.fbp
     :param batch_size: int, is passed to ts_algorithms.fbp
     :param overwrite_y: bool, Specifies whether to overwrite y with the
     filtered version while running this function. If overwrite_y==False an
@@ -163,7 +162,6 @@ def fdk(A, y, padded=True, filter=None, reject_acyclic_filter=True, batch_size=1
         y=y_weighted,
         padded=padded,
         filter=filter,
-        reject_acyclic_filter=reject_acyclic_filter,
         batch_size=batch_size,
         overwrite_y=True
     )

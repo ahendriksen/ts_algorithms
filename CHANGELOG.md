@@ -6,11 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
-- <insert-features-not-in-a-release-yet>
+- Support for pytorch 1.7, 1.8 and higher.
+- Batched filtering in FDK and FBP reconstruction to conserve memory.
+- Support for overwriting sinogram in FDK and FBP to conserve memory.
 ### Fixed
 - <insert-bugs-fixed-not-in-a-release-yet>
+### Removed
+- Support for pytorch versions below 1.7.
+- `reject_acyclic_filter` flag: not necessary anymore now that complex
+  multiplication is available.
 
-## 0.1.0 - YYYY-MM-DD
+## 0.1.0 - 2021-06-03
 ### Added
 - Initial release.
 

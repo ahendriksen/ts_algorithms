@@ -28,6 +28,21 @@ def test_fbp():
     rec = fbp(A, y, padded=False)
 
 
+def test_fbp_odd_width():
+    vg = ts.volume(shape=32)
+    # Test also with a projection geometry with *49* pixels:
+    pg = ts.parallel(angles=32, shape=49)
+
+    A = ts.operator(vg, pg)
+
+    x = torch.ones(*A.domain_shape)
+    y = A(x)
+
+    # Make sure this code runs without errors:
+    rec = fbp(A, y)
+    rec = fbp(A, y, padded=False)
+
+
 def test_fbp_rotating_volume():
     """Test that fbp handles volume_vec geometries correctly
 
