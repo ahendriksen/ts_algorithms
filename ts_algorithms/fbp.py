@@ -3,6 +3,13 @@ import torch
 import numpy as np
 
 
+def total_padded_width(width):
+    if width % 2 == 0:
+        return 2*width
+    else:
+        return 2*width + 2
+
+
 def num_pad(width):
     # We must have:
     # 1) num_pixels + num_padding is even (because rfft wants the #input elements to be even)
@@ -32,13 +39,6 @@ def pad(sino):
 def unpad(sino, width):
     pad_left, pad_right = num_pad(width)
     return sino[..., pad_left:pad_left+width]
-
-
-def cycle_filter(h, width):
-    out = h.new_zeros(width)
-    out[:len(h)] = h
-    out[-len(h) + 1:] = torch.flip(h[1:], dims=(0,))
-    return out
 
 
 def ram_lak(n):
@@ -76,15 +76,20 @@ def filter_sino(y, filter=None, padded=True):
         A sinogram filtered with the provided filter.
     :rtype: `torch.tensor`
     """
-    if filter is None:
-        # Use Ram-Lak filter by default.
-        filter = ram_lak(y.shape[-1]).to(y.device)
-
     # Add padding
     original_width = y.shape[-1]
     if padded:
         y = pad(y)
-        filter = cycle_filter(filter, y.shape[-1])
+
+    if filter is None:
+        # Use Ram-Lak filter by default.
+        filter = ram_lak(y.shape[-1]).to(y.device)
+
+    if filter.shape != y.shape[-1:]:
+        raise ValueError(
+            f"Filter is the wrong length. Expected length: {y.shape[-1]}. "
+            f"Got: {filter.shape}"
+        )
 
     # Fourier transform of sinogram and filter.
     y_f = torch.fft.rfft(y)
@@ -159,6 +164,18 @@ def fbp(A, y, padded=True, filter=None, batch_size=10, overwrite_y=False):
         y_filtered = y
     else:
         y_filtered = torch.empty_like(y)
+
+    if padded:
+        expected_filter_width = total_padded_width(y.shape[-1])
+    else:
+        expected_filter_width = y.shape[-1]
+
+    if filter is not None and filter.shape[-1] != expected_filter_width:
+        raise ValueError(
+            f"Filter is the wrong length. "
+            f"Expected length: {expected_filter_width}. "
+            f"Got: {filter.shape}. "
+        )
 
     # Filter the sinogram in batches
     for batch_start in range(0, y.shape[1], batch_size):

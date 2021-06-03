@@ -15,7 +15,6 @@ def make_box_phantom():
 def test_fbp():
     vg = ts.volume(shape=32)
     pg = ts.parallel(angles=32, shape=48)
-
     A = ts.operator(vg, pg)
 
     x = torch.zeros(*A.domain_shape)
@@ -41,6 +40,23 @@ def test_fbp_odd_width():
     # Make sure this code runs without errors:
     rec = fbp(A, y)
     rec = fbp(A, y, padded=False)
+
+
+def test_fbp_filter_error_handling():
+    vg = ts.volume(shape=32)
+    pg = ts.parallel(angles=32, shape=48)
+    A = ts.operator(vg, pg)
+    y = torch.ones(*A.range_shape)
+
+    # Unpadded
+    fbp(A, y, padded=False, filter=torch.ones(y.shape[-1]))
+    with pytest.raises(ValueError):
+        fbp(A, y, padded=False, filter=torch.ones(y.shape[-1] + 1))
+
+    # Padded
+    fbp(A, y, padded=True, filter=torch.ones(96))
+    with pytest.raises(ValueError):
+        fbp(A, y, padded=True, filter=torch.ones(y.shape[-1]))
 
 
 def test_fbp_rotating_volume():

@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Batched filtering in FDK and FBP reconstruction to conserve memory.
 - Support for overwriting sinogram in FDK and FBP to conserve memory.
 ### Fixed
-- <insert-bugs-fixed-not-in-a-release-yet>
+- FDK/FBP: Force filter to be same size as padded sinogram.
 ### Removed
 - Support for pytorch versions below 1.7.
 - `reject_acyclic_filter` flag: not necessary anymore now that complex
