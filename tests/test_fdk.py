@@ -41,8 +41,17 @@ phantom64 = [
     make_box_phantom(),
 ]
 
+# Due to a different approach in padding to ASTRA during the filtering
+# of FBP, there is a difference on the edges between our
+# reconstruction and ASTRA's. Therefore, we make the detector
+# substantially larger so that padding does not matter anymore.
+pg64_astra = [
+    ts.cone(angles=96, shape=192, src_det_dist=192),
+    ts.cone(angles=96, shape=192, size=3.0, src_det_dist=3),
+    ts.cone(angles=96, shape=192, size=6.0, src_det_dist=3, src_orig_dist=3),
+]
 
-@pytest.mark.parametrize("vg, pg, x", zip(vg64, pg64, phantom64))
+@pytest.mark.parametrize("vg, pg, x", zip(vg64, pg64_astra, phantom64))
 def test_astra_compatibility(vg, pg, x):
     A = ts.operator(vg, pg)
     y = A(x)

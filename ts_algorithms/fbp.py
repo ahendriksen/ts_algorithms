@@ -4,22 +4,15 @@ import numpy as np
 
 
 def total_padded_width(width):
-    if width % 2 == 0:
-        return 2*width
-    else:
-        return 2*width + 2
+    (pad_l, pad_r) = num_pad(width)
+    return pad_l + width + pad_r
 
 
 def num_pad(width):
-    # We must have:
-    # 1) num_pixels + num_padding is even (because rfft wants the #input elements to be even)
-    # 2) num_padding // 2 must equal at least num_pixels (not so sure about this actually..)
-    if width % 2 == 0:
-        num_padding = width
-    else:
-        num_padding = width + 2
-
-    # num_padding < num_padding_left
+    # If the width of the filter equals `width`, then we need at least
+    # `width - 1` padding. For performance reasons, we prefer the data
+    # we feed into the FFT to have an even length. So we use `width`.
+    num_padding = width
     num_pad_left = num_padding // 2
     return (num_pad_left, num_padding - num_pad_left)
 
@@ -28,7 +21,6 @@ def pad(sino):
     (num_slices, num_angles, num_pixels) = sino.shape
     num_pad_left, num_pad_right = num_pad(num_pixels)
     num_padding = num_pad_left + num_pad_right
-    # M is always even
     M = num_pixels + num_padding
 
     tmp_sino = sino.new_zeros((num_slices, num_angles, M))
@@ -39,6 +31,16 @@ def pad(sino):
 def unpad(sino, width):
     pad_left, pad_right = num_pad(width)
     return sino[..., pad_left:pad_left+width]
+
+
+def pad_filter(h):
+    width = 2 * len(h)
+    out = h.new_zeros(width)
+    w = len(h)
+    out[0] = h[0]
+    out[1:w] = h[1:]
+    out[-w + 1:] = torch.flip(h[1:], dims=(0,))
+    return out
 
 
 def ram_lak(n):
@@ -78,12 +80,15 @@ def filter_sino(y, filter=None, padded=True):
     """
     # Add padding
     original_width = y.shape[-1]
-    if padded:
-        y = pad(y)
 
     if filter is None:
         # Use Ram-Lak filter by default.
         filter = ram_lak(y.shape[-1]).to(y.device)
+
+    if padded:
+        y = pad(y)
+        if len(filter) == original_width:
+            filter = pad_filter(filter)
 
     if filter.shape != y.shape[-1:]:
         raise ValueError(
@@ -162,13 +167,16 @@ def fbp(A, y, padded=True, filter=None, batch_size=10, overwrite_y=False):
     else:
         y_filtered = torch.empty_like(y)
 
+    if filter is None:
+        filter = ram_lak(y.shape[-1]).to(y.device)
+
     if padded:
         expected_filter_width = total_padded_width(y.shape[-1])
     else:
         expected_filter_width = y.shape[-1]
 
-    if filter is None:
-        filter = ram_lak(expected_filter_width).to(y.device)
+    if padded and len(filter) != expected_filter_width:
+        filter = pad_filter(filter)
 
     if filter is not None and filter.shape[-1] != expected_filter_width:
         raise ValueError(
