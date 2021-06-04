@@ -167,6 +167,9 @@ def fbp(A, y, padded=True, filter=None, batch_size=10, overwrite_y=False):
     else:
         expected_filter_width = y.shape[-1]
 
+    if filter is None:
+        filter = ram_lak(expected_filter_width).to(y.device)
+
     if filter is not None and filter.shape[-1] != expected_filter_width:
         raise ValueError(
             f"Filter is the wrong length. "
