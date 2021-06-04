@@ -137,7 +137,8 @@ def fbp(A, y, padded=True, filter=None, batch_size=10, overwrite_y=False):
     :param batch_size: `int`
         Specifies how many projection images will be filtered at the
         same time. Increasing the batch_size will increase the used
-        memory and it may marginally reduce the computation time.
+        memory. Computation time can be marginally improved by
+        tweaking this parameter.
 
     :param overwrite_y: `bool`
         Specifies whether to overwrite y with the filtered version
