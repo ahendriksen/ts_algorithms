@@ -106,10 +106,6 @@ def filter_sino(y, filter=None, padded=True):
     # Remove padding
     if padded:
         y_filtered = unpad(y_filtered, original_width)
-        # By removing the padding, y_filtered has become
-        # discontiguous. ASTRA only accepts contiguous arrays. So we
-        # allocate a new contiguous array.
-        y_filtered = y_filtered.contiguous()
 
     return y_filtered
 
