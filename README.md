@@ -1,70 +1,18 @@
 # Tomosipo algorithms
 
-A collection of common algorithms for tomosipo
+A collection of common tomographic reconstruction algorithms
+implemented using the tomosipo package.
 
-This paragraph should contain a high-level description of the package, with a
-brief overview of its features and limitations.
+The following algorithms are implemented:
+
+- FBP
+- FDK
+- SIRT
+- Total-variation minimization
 
 
 * Free software: GNU General Public License v3
 * Documentation: [https://ahendriksen.github.io/ts_algorithms]
-
-
-## Readiness
-
-The author of this package is in the process of setting up this
-package for optimal usability. The following has already been completed:
-
-- [ ] Documentation
-    - A package description has been written in the README
-    - Documentation has been generated using `make docs`, committed,
-        and pushed to GitHub.
-	- GitHub pages have been setup in the project settings
-	  with the "source" set to "master branch /docs folder".
-- [ ] An initial release
-	- In `CHANGELOG.md`, a release date has been added to v0.1.0 (change the YYYY-MM-DD).
-	- The release has been marked a release on GitHub.
-	- For more info, see the [Software Release Guide](https://cicwi.github.io/software-guides/software-release-guide).
-- [ ] A conda package
-    - Required packages have been added to `setup.py`, for instance,
-      ```
-      requirements = [
-          # Add your project's requirements here, e.g.,
-          # 'astra-toolbox',
-          # 'sacred>=0.7.2',
-          # 'tables==3.4.4',
-      ]
-      ```
-      has been replaced by
-      ```
-      requirements = [
-          'astra-toolbox',
-          'sacred>=0.7.2',
-          'tables==3.4.4',
-      ]
-      ```
-    - All "conda channels" that are required for building and
-      installing the package have been added to the
-      `Makefile`. Specifically, replace
-      ```
-      conda_package:
-        conda install conda-build -y
-        conda build conda/
-      ```
-      by
-      ```
-      conda_package:
-        conda install conda-build -y
-        conda build conda/ -c some-channel -c some-other-channel
-      ```
-    - Conda packages have been built successfully with `make conda_package`.
-    - These conda packages have been uploaded to
-      [Anaconda](https://anaconda.org). [This](http://docs.anaconda.com/anaconda-cloud/user-guide/getting-started/#cloud-getting-started-build-upload)
-      is a good getting started guide.
-    - The installation instructions (below) have been updated. Do not
-      forget to add the required channels, e.g., `-c some-channel -c
-      some-other-channel`, and your own channel, e.g., `-c ahendriksen`.
-
 
 ## Getting Started
 
@@ -78,7 +26,7 @@ Python 3.
 Install with:
 ```
 # Pytorch, CUDA and ASTRA
-conda install -n tomosipo python=3.6 pytorch=1.5 cudatoolkit=10.1 astra-toolbox   -c pytorch -c astra-toolbox/label/dev
+conda install -n tomosipo pytorch=1.8 cudatoolkit=10.2 astra-toolbox -c pytorch -c astra-toolbox/label/dev
 source activate tomosipo
 # Latest Tomosipo develop branch
 pip install git+https://github.com/ahendriksen/tomosipo.git@develop
@@ -86,10 +34,29 @@ pip install git+https://github.com/ahendriksen/tomosipo.git@develop
 pip install git+https://github.com/ahendriksen/ts_algorithms.git
 ```
 
-### Running the examples
+### Running
 
-To learn more about the functionality of the package check out our
-examples folder.
+``` python
+import torch
+import tomosipo as ts
+from ts_algorithms import fbp, sirt, tv_min2d, fdk
+
+# Setup up volume and parallel projection geometry
+vg = ts.volume(shape=(1, 256, 256))
+pg = ts.parallel(angles=384, shape=(1, 384))
+A = ts.operator(vg, pg)
+
+# Create hollow cube phantom
+x = torch.zeros(A.domain_shape)
+x[:, 10:-10, 10:-10] = 1.0
+x[:, 20:-20, 20:-20] = 1.0
+
+# Forward project
+y = A(x)
+
+rec_fbp = fbp(A, y)
+rec_sirt = sirt(A, y,
+```
 
 ## Authors and contributors
 
