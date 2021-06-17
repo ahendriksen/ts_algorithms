@@ -1,5 +1,6 @@
 import tomosipo as ts
 import torch
+from torch.fft import rfft, irfft
 import numpy as np
 
 
@@ -97,8 +98,8 @@ def filter_sino(y, filter=None, padded=True):
         )
 
     # Fourier transform of sinogram and filter.
-    y_f = torch.fft.rfft(y)
-    h_f = torch.fft.rfft(filter)
+    y_f = rfft(y)
+    h_f = rfft(filter)
 
     # Filter the sinogram using complex multiplication:
     y_f *= h_f
@@ -106,7 +107,7 @@ def filter_sino(y, filter=None, padded=True):
     # Invert fourier transform.
     # Make sure inverted data matches the shape of y (for
     # sinograms with odd width).
-    y_filtered = torch.fft.irfft(y_f, n=y.shape[-1])
+    y_filtered = irfft(y_f, n=y.shape[-1])
 
     # Remove padding
     if padded:
