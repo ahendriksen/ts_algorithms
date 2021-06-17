@@ -49,13 +49,13 @@ A = ts.operator(vg, pg)
 # Create hollow cube phantom
 x = torch.zeros(A.domain_shape)
 x[:, 10:-10, 10:-10] = 1.0
-x[:, 20:-20, 20:-20] = 1.0
+x[:, 20:-20, 20:-20] = 0.0
 
 # Forward project
 y = A(x)
 
 rec_fbp = fbp(A, y)
-rec_sirt = sirt(A, y,
+rec_sirt = sirt(A, y)
 ```
 
 ## Authors and contributors
