@@ -3,7 +3,7 @@ import torch
 import math
 
 
-def sirt(A, y, num_iterations):
+def sirt(A, y, num_iterations, min_constraint=0.0, max_constraint=None):
     """Execute the SIRT algorithm
 
     If `y` is located on GPU, the entire algorithm is executed on a single GPU.
@@ -14,6 +14,10 @@ def sirt(A, y, num_iterations):
     :param A: `tomosipo.operator`
     :param y: `torch.tensor`
     :param num_iterations: `int`
+    :param min_constraint: `float`
+        Minimum value enforced at each iteration. Setting to None skips this step.
+    :param max_constraint: `float`
+        Maximum value enforced at each iteration. Setting to None skips this step.
 
     :returns:
     :rtype:
@@ -41,5 +45,6 @@ def sirt(A, y, num_iterations):
         A.T(y_tmp, out=x_tmp)
         x_tmp *= C
         x_cur -= x_tmp
+        x_cur.clamp_(min_constraint, max_constraint)
 
     return x_cur
