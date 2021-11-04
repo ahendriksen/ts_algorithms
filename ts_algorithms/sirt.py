@@ -45,6 +45,7 @@ def sirt(A, y, num_iterations, min_constraint=0.0, max_constraint=None):
         A.T(y_tmp, out=x_tmp)
         x_tmp *= C
         x_cur -= x_tmp
-        x_cur.clamp_(min_constraint, max_constraint)
+        if min_constraint or max_constraint:
+            x_cur.clamp_(min_constraint, max_constraint)
 
     return x_cur
