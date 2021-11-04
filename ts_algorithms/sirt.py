@@ -3,7 +3,7 @@ import torch
 import math
 
 
-def sirt(A, y, num_iterations, min_constraint=0.0, max_constraint=None):
+def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None):
     """Execute the SIRT algorithm
 
     If `y` is located on GPU, the entire algorithm is executed on a single GPU.
