@@ -18,7 +18,7 @@ def astra_fdk(A, y):
 
     vd = ts.data(vg)
     pd = ts.data(pg, y.cpu().numpy())
-    ts.fdk(vd, pd)
+    ts.astra.fdk(vd, pd)
     # XXX: disgregard clean up of vd and pd (tests are short-lived and
     # small)
     return torch.from_numpy(vd.data.copy()).to(y.device)
@@ -65,7 +65,7 @@ def test_astra_compatibility(vg, pg, x):
 def test_fdk_flipped_cone_geometry():
     vg = ts.volume(shape=64)
     angles = np.linspace(0, 2 * np.pi, 96)
-    R = ts.rotate(pos=0, axis=(1, 0, 0), rad=angles)
+    R = ts.rotate(pos=0, axis=(1, 0, 0), angles=angles)
     pg = ts.cone_vec(
             shape=(96, 96),
             src_pos=[[0, 130, 0]],  # usually -130
@@ -126,7 +126,7 @@ def test_fdk_off_center_cor():
     pg = ts.cone(angles=1, shape=(96, 96), src_det_dist=130).to_vec()
 
     angles = np.linspace(0, 2 * np.pi, 30)
-    R = ts.rotate(pos=(0, -20, -20), axis=(1, 0, 0), rad=angles)
+    R = ts.rotate(pos=(0, -20, -20), axis=(1, 0, 0), angles=angles)
 
     A1 = ts.operator(vg, R * pg)
     A2 = ts.operator(R.inv * vg, pg)
@@ -152,7 +152,7 @@ def test_magnification_invariance():
 
     vg = ts.volume(shape=64)
     angles = np.linspace(0, 2 * np.pi, 30)
-    R = ts.rotate(pos=(0, 0, 0), axis=(1, 0, 0), rad=angles)
+    R = ts.rotate(pos=(0, 0, 0), axis=(1, 0, 0), angles=angles)
 
     # Create pg with various source and detector positions as well as
     # various pixel sizer to achieve various levels of magnification
@@ -210,7 +210,7 @@ def test_fdk_off_center_cor_subsets():
     pg = ts.cone(angles=1, shape=(96, 96), src_det_dist=130).to_vec()
 
     angles = np.linspace(0, 2 * np.pi, 32)
-    R = ts.rotate(pos=(0, -20, 20), axis=(1, 0,  0), rad=angles)
+    R = ts.rotate(pos=(0, -20, 20), axis=(1, 0,  0), angles=angles)
 
     sub_slice = (slice(0, 32), slice(0, 32), slice(0, 32))
     vg_sub = vg[sub_slice]
@@ -294,7 +294,7 @@ def test_fdk_rotating_volume():
     pg = ts.cone(angles=1, shape=(96, 96), src_det_dist=130).to_vec()
 
     angles = np.linspace(0, 2 * np.pi, 30)
-    R = ts.rotate(pos=0, axis=(1, 0, 0), rad=angles)
+    R = ts.rotate(pos=0, axis=(1, 0, 0), angles=angles)
 
     A1 = ts.operator(vg, R * pg)
     A2 = ts.operator(R.inv * vg, pg)
@@ -461,7 +461,7 @@ def test_fdk_errors():
     vg = ts.volume(pos=(0, -64, 0), shape=64).to_vec()
     pg = ts.cone(shape=96, angles=1, src_det_dist=128).to_vec()
     angles = np.linspace(0, 2 * np.pi, 90)
-    R = ts.rotate(pos=(0, -129, 0), axis=(1, 0, 0), rad=angles)
+    R = ts.rotate(pos=(0, -129, 0), axis=(1, 0, 0), angles=angles)
 
     A = ts.operator(R * vg, pg)
 

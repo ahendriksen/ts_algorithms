@@ -86,7 +86,7 @@ def test_fbp_rotating_volume():
     pg = ts.parallel(angles=1, shape=(64, 80)).to_vec()
 
     angles = np.linspace(0, 2 * np.pi, 30)
-    R = ts.rotate(pos=0, axis=(1, 0, 0), rad=angles)
+    R = ts.rotate(pos=0, axis=(1, 0, 0), angles=angles)
 
     A1 = ts.operator(vg, R * pg)
     A2 = ts.operator(R.inv * vg, pg)
