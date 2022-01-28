@@ -3,7 +3,8 @@ import torch
 import math
 
 
-def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None):
+def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None, x_init=None, volume_mask=None,
+    projection_mask=None):
     """Execute the SIRT algorithm
 
     If `y` is located on GPU, the entire algorithm is executed on a single GPU.
@@ -11,15 +12,30 @@ def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None):
     IF `y` is located in RAM (CPU in PyTorch parlance), then only the
     foward and backprojection are executed on GPU.
 
-    :param A: `tomosipo.operator`
-    :param y: `torch.tensor`
+    :param A: `tomosipo.Operator`
+        Projection operator
+    :param y: `torch.Tensor`
+        Projection data
     :param num_iterations: `int`
+        Number of iterations
     :param min_constraint: `float`
         Minimum value enforced at each iteration. Setting to None skips this step.
     :param max_constraint: `float`
         Maximum value enforced at each iteration. Setting to None skips this step.
-
-    :returns:
+    :param x_init: `torch.Tensor`
+        Initial value for the solution. Setting to None will start with zeros.
+        Setting x_init to a previously found solution can be useful to
+        continue with more iterations of SIRT.
+    :param volume_mask: `torch.Tensor`
+        Mask for the reconstruction volume. All voxels outside of the mask will
+        be assumed to not contribute to the projection data.
+        Setting to None will result in using the whole volume.
+    :param projection_mask: `torch.Tensor`
+        Mask for the projection data. All pixels outside of the mask will
+        be assumed to not contribute to the reconstruction.
+        Setting to None will result in using the whole projection data.
+    :returns: `torch.Tensor`
+        A reconstruction of the volume using num_iterations iterations of SIRT
     :rtype:
 
     """
@@ -35,8 +51,19 @@ def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None):
     R = A(x_tmp)
     R[R < ts.epsilon] = math.inf
     R.reciprocal_()
+    
+    if x_init is None:
+        x_cur = torch.zeros(A.domain_shape, device=dev)
+    else:
+        with torch.cuda.device_of(y):
+            x_cur = x_init.clone()
 
-    x_cur = torch.zeros(A.domain_shape, device=dev)
+    if volume_mask is not None:
+        x_cur *= volume_mask
+        C *= volume_mask
+        
+    if projection_mask is not None:
+        R *= projection_mask
 
     for _ in range(num_iterations):
         A(x_cur, out=y_tmp)
