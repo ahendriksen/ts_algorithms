@@ -17,6 +17,7 @@ Publishing:3065–91. https://doi.org/10.1088/0031-9155/57/10/3065.
 import tomosipo as ts
 import torch
 import math
+import tqdm
 from .operators import operator_norm
 
 
@@ -59,7 +60,7 @@ def clip(z, lamb):
     return z * torch.clamp(lamb / magnitude(z), min=None, max=1.0)
 
 
-def tv_min2d(A, y, lam, num_iterations=500, L=None, non_negativity=False):
+def tv_min2d(A, y, lam, num_iterations=500, L=None, non_negativity=False, progress_bar=False):
     """Computes the total-variation minimization using Chambolle-Pock
 
     Assumes that the data is a single 2D slice. A 3D version with 3D
@@ -103,7 +104,7 @@ def tv_min2d(A, y, lam, num_iterations=500, L=None, non_negativity=False):
     q = grad_2D(u)                  # contains zeros (and has correct shape)
     u_avg = torch.clone(u)
 
-    for n in range(num_iterations):
+    for n in tqdm.trange(num_iterations, disable=not progress_bar):
         p = (p + s * (A(u_avg) - y)) / (1 + s)
         q = clip(q + s * grad_2D(u_avg), lam)
         u_new = u - (t * A.T(p) + t * grad_2D_T(q))
