@@ -24,3 +24,4 @@ from .fbp import fbp
 from .tv_min import tv_min2d
 from .operators import operator_norm
 from .fdk import fdk
+from .nag_ls import nag_ls, ATA_max_eigenvalue
