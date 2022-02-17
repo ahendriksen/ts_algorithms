@@ -1,6 +1,7 @@
 import tomosipo as ts
 import torch
 import math
+import tqdm
 
 
 def ATA_max_eigenvalue(A, stop_iterations=10, stop_ratio=1):
@@ -42,7 +43,7 @@ def ATA_max_eigenvalue(A, stop_iterations=10, stop_ratio=1):
 
 def nag_ls(A, y, num_iterations, max_eigen, min_eigen=0, l2_regularization=0,
     min_constraint=None, max_constraint=None, x_init=None,
-    volume_mask=None, projection_mask=None):
+    volume_mask=None, projection_mask=None, progress_bar=False):
     """Apply nesterov accelerated gradient descent (nag) [1](chapter 2.2) to
        solve the (possibly l2-regularized) least squares (ls) problem:
        minimize over x: ||Ax - y||^2 + l2_regularization * ||x||^2
@@ -122,8 +123,8 @@ def nag_ls(A, y, num_iterations, max_eigen, min_eigen=0, l2_regularization=0,
     else:
         Q_sqrt = math.sqrt(L/mu)
         frac = (Q_sqrt - 1) / (Q_sqrt + 1)
-
-    for _ in range(num_iterations):
+        
+    for _ in tqdm.trange(num_iterations, disable=not progress_bar):
         A(z, out=residual)
         residual -= y
         if projection_mask is not None:

@@ -1,10 +1,11 @@
 import tomosipo as ts
 import torch
 import math
+import tqdm
 
 
 def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None, x_init=None, volume_mask=None,
-    projection_mask=None):
+    projection_mask=None, progress_bar=False):
     """Execute the SIRT algorithm
 
     If `y` is located on GPU, the entire algorithm is executed on a single GPU.
@@ -65,7 +66,7 @@ def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None, x_init=
     if projection_mask is not None:
         R *= projection_mask
 
-    for _ in range(num_iterations):
+    for _ in tqdm.trange(num_iterations, disable=not progress_bar):
         A(x_cur, out=y_tmp)
         y_tmp -= y
         y_tmp *= R
