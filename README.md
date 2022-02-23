@@ -8,7 +8,8 @@ The following algorithms are implemented:
 - FBP
 - FDK
 - SIRT
-- Total-variation minimization
+- tv_min: Total-variation regularized least squares with the Champbolle Pock method
+- nag_ls: l2-regularized least squares with the Nesterov accelerated gradient descent(nag) method
 
 
 * Free software: GNU General Public License v3
@@ -25,8 +26,8 @@ Python 3.
 
 Install with:
 ```
-# Pytorch, CUDA and ASTRA
-conda install -n tomosipo pytorch=1.8 cudatoolkit=10.2 astra-toolbox -c pytorch -c astra-toolbox/label/dev
+# Pytorch, CUDA, ASTRA and tqdm
+conda install -n tomosipo pytorch=1.8 cudatoolkit=10.2 astra-toolbox tqdm -c pytorch -c astra-toolbox/label/dev
 source activate tomosipo
 # Latest Tomosipo develop branch
 pip install git+https://github.com/ahendriksen/tomosipo.git@develop
@@ -39,7 +40,7 @@ pip install git+https://github.com/ahendriksen/ts_algorithms.git
 ``` python
 import torch
 import tomosipo as ts
-from ts_algorithms import fbp, sirt, tv_min2d, fdk
+from ts_algorithms import fbp, sirt, tv_min2d, fdk, nag_ls
 
 # Setup up volume and parallel projection geometry
 vg = ts.volume(shape=(1, 256, 256))
@@ -54,14 +55,17 @@ x[:, 20:-20, 20:-20] = 0.0
 # Forward project
 y = A(x)
 
+# reconstructions made with different algorithms
 rec_fbp = fbp(A, y)
-rec_sirt = sirt(A, y)
+rec_sirt = sirt(A, y, num_iterations=100)
+rec_tv_min = tv_min2d(A, y, 0.0001, num_iterations=100)
+rec_nag_ls = nag_ls(A, y, num_iterations=100)
 ```
 
 ## Authors and contributors
 
 * **Allard Hendriksen** - *Initial work*
-* **Dirk Schut** - *FDK implementation*
+* **Dirk Schut** - *FDK and nag_ls implementations, current maintainer*
 
 See also the list of [contributors](https://github.com/ahendriksen/ts_algorithms/contributors) who participated in this project.
 

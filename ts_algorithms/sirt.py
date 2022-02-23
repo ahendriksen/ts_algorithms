@@ -2,10 +2,11 @@ import tomosipo as ts
 import torch
 import math
 import tqdm
+from .callbacks import call_all_callbacks
 
 
 def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None, x_init=None, volume_mask=None,
-    projection_mask=None, progress_bar=False):
+    projection_mask=None, progress_bar=False, callbacks=()):
     """Execute the SIRT algorithm
 
     If `y` is located on GPU, the entire algorithm is executed on a single GPU.
@@ -35,6 +36,15 @@ def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None, x_init=
         Mask for the projection data. All pixels outside of the mask will
         be assumed to not contribute to the reconstruction.
         Setting to None will result in using the whole projection data.
+    :param progress_bar: `bool`
+        Whether to show a progress bar on the command line interface.
+        Default: False
+    :param callbacks: 
+        Iterable containing functions or callable objects. Each callback will
+        be called every iteration with the current estimate and iteration
+        number as arguments. If any callback returns True, the algorithm stops
+        after this iteration. This can be used for logging, tracking or
+        alternative stopping conditions.
     :returns: `torch.Tensor`
         A reconstruction of the volume using num_iterations iterations of SIRT
     :rtype:
@@ -66,7 +76,7 @@ def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None, x_init=
     if projection_mask is not None:
         R *= projection_mask
 
-    for _ in tqdm.trange(num_iterations, disable=not progress_bar):
+    for iteration in tqdm.trange(num_iterations, disable=not progress_bar):
         A(x_cur, out=y_tmp)
         y_tmp -= y
         y_tmp *= R
@@ -75,5 +85,10 @@ def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None, x_init=
         x_cur -= x_tmp
         if (min_constraint is not None) or (max_constraint is not None):
             x_cur.clamp_(min_constraint, max_constraint)
+            
+        # Call all callbacks and stop iterating if one of the callbacks
+        # indicates to stop
+        if call_all_callbacks(callbacks, x_cur, iteration):
+            break
 
     return x_cur

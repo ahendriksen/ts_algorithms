@@ -19,6 +19,7 @@ import torch
 import math
 import tqdm
 from .operators import operator_norm
+from .callbacks import call_all_callbacks
 
 
 def grad_2D(x):
@@ -60,17 +61,31 @@ def clip(z, lamb):
     return z * torch.clamp(lamb / magnitude(z), min=None, max=1.0)
 
 
-def tv_min2d(A, y, lam, num_iterations=500, L=None, non_negativity=False, progress_bar=False):
+def tv_min2d(A, y, lam, num_iterations=500, L=None, non_negativity=False, progress_bar=False, callbacks=()):
     """Computes the total-variation minimization using Chambolle-Pock
 
     Assumes that the data is a single 2D slice. A 3D version with 3D
     gradients is work in progress.
 
-    :param A: `tomosipo.operator`
-    :param y: `torch.tensor`
+    :param A: `tomosipo.Operator`
+        Projection operator
+    :param y: `torch.Tensor`
+        Projection data
     :param lam: `float`
         regularization parameter lambda.
     :param num_iterations: `int`
+        Number of iterations
+    :param L:
+        operator norm of operator A
+    :param progress_bar: `bool`
+        Whether to show a progress bar on the command line interface.
+        Default: False
+    :param callbacks: 
+        Iterable containing functions or callable objects. Each callback will
+        be called every iteration with the current estimate and iteration
+        number as arguments. If any callback returns True, the algorithm stops
+        after this iteration. This can be used for logging, tracking or
+        alternative stopping conditions.
     :returns:
     :rtype:
 
@@ -104,7 +119,7 @@ def tv_min2d(A, y, lam, num_iterations=500, L=None, non_negativity=False, progre
     q = grad_2D(u)                  # contains zeros (and has correct shape)
     u_avg = torch.clone(u)
 
-    for n in tqdm.trange(num_iterations, disable=not progress_bar):
+    for iteration in tqdm.trange(num_iterations, disable=not progress_bar):
         p = (p + s * (A(u_avg) - y)) / (1 + s)
         q = clip(q + s * grad_2D(u_avg), lam)
         u_new = u - (t * A.T(p) + t * grad_2D_T(q))
@@ -112,5 +127,10 @@ def tv_min2d(A, y, lam, num_iterations=500, L=None, non_negativity=False, progre
             u_new = torch.clamp(u_new, min=0.0, max=None)
         u_avg = u_new + theta * (u_new - u)
         u = u_new
+
+        # Call all callbacks and stop iterating if one of the callbacks
+        # indicates to stop
+        if call_all_callbacks(callbacks, u, iteration):
+            break
 
     return u
