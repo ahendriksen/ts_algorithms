@@ -12,8 +12,7 @@ The following algorithms are implemented:
 - nag_ls: l2-regularized least squares with the Nesterov accelerated gradient descent(nag) method
 
 
-* Free software: GNU General Public License v3
-* Documentation: [https://ahendriksen.github.io/ts_algorithms]
+Free software: GNU General Public License v3
 
 ## Getting Started
 
@@ -29,8 +28,8 @@ Install with:
 # Pytorch, CUDA, ASTRA and tqdm
 conda install -n tomosipo pytorch=1.8 cudatoolkit=10.2 astra-toolbox tqdm -c pytorch -c astra-toolbox/label/dev
 source activate tomosipo
-# Latest Tomosipo develop branch
-pip install git+https://github.com/ahendriksen/tomosipo.git@develop
+# Install tomosipo
+pip install git+https://github.com/ahendriksen/tomosipo.git
 # Tomosipo algorithms
 pip install git+https://github.com/ahendriksen/ts_algorithms.git
 ```
