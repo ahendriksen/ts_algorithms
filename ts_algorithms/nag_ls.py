@@ -1,49 +1,16 @@
+import warnings
 import tomosipo as ts
 import torch
 import math
 import tqdm
+import time
+from .callbacks import call_all_callbacks
+from .operators import ATA_max_eigenvalue
 
 
-def ATA_max_eigenvalue(A, stop_iterations=10, stop_ratio=1):
-    """Calculate the largest eigenvalue of A.T*A given a Tomosipo operator A
-    
-    The estimate is improved iteratively [1], and for each iteration both a
-    lower and an upper bound for the largest eigenvalue are calculated. When
-    stop_iterations iterations have been executed or upper_bound/lower_bound
-    <= stop_ratio, the algorithm is stopped and both the lower and the upper
-    bound estimates are returned.
-    
-    Disclaimer: The method requires A.T*A to be irreducible, primitive and
-    non-negative. The only property I'm sure of is non-negativity, but the
-    method seems to work well for all operators I've tried it with.
-    
-    [1] Wood, R. J., & O'Neill, M. J. (2003). An always convergent method for
-    finding the spectral radius of an irreducible non-negative matrix. ANZIAM
-    Journal, 45, C474-C485.
-    """
-    x = torch.ones(A.domain_shape)
-    x_next = torch.zeros(A.domain_shape)
-    y_tmp = torch.zeros(A.range_shape)
-    
-    for i in range(stop_iterations):
-        A(x, out=y_tmp)
-        A.T(y_tmp, out=x_next)
-        
-        ratio = x_next/x
-        lower_bound = torch.min(ratio)
-        upper_bound = torch.max(ratio)
-        x, x_next = x_next, x
-        x /= (upper_bound + lower_bound)/2
-        
-        if upper_bound/lower_bound <= stop_ratio:
-            break
-    
-    return lower_bound, upper_bound, x
-
-
-def nag_ls(A, y, num_iterations, max_eigen, min_eigen=0, l2_regularization=0,
+def nag_ls(A, y, num_iterations, max_eigen=None, min_eigen=0, l2_regularization=0,
     min_constraint=None, max_constraint=None, x_init=None,
-    volume_mask=None, projection_mask=None, progress_bar=False):
+    volume_mask=None, projection_mask=None, progress_bar=False, callbacks=()):
     """Apply nesterov accelerated gradient descent (nag) [1](chapter 2.2) to
        solve the (possibly l2-regularized) least squares (ls) problem:
        minimize over x: ||Ax - y||^2 + l2_regularization * ||x||^2
@@ -71,7 +38,7 @@ def nag_ls(A, y, num_iterations, max_eigen, min_eigen=0, l2_regularization=0,
     :param max_eigen: `float`
         largest eigenvalue of A.T*A / spectral radius of A.T*A / Lipschitz
         constant of the gradient of the least squares problem not considering
-        regularization
+        regularization. Can be calculated using ts.algorithms.ATA_max_eigenvalue
     :param min_eigen: `float`
         Smallest eigenvalue of A.T*A / strict convexity parameter not
         considering regularization
@@ -96,6 +63,15 @@ def nag_ls(A, y, num_iterations, max_eigen, min_eigen=0, l2_regularization=0,
         Mask for the projection data. All pixels outside of the mask will
         be assumed to not contribute to the reconstruction.
         Setting to None will result in using the whole projection data.
+    :param progress_bar: `bool`
+        Whether to show a progress bar on the command line interface.
+        Default: False
+    :param callbacks: 
+        Iterable containing functions or callable objects. Each callback will
+        be called every iteration with the current estimate and iteration
+        number as arguments. If any callback returns True, the algorithm stops
+        after this iteration. This can be used for logging, tracking or
+        alternative stopping conditions.
     :returns: `torch.Tensor`
         A reconstruction of the volume using num_iterations iterations of
         Nesterov accelerated gradient descent.
@@ -103,33 +79,60 @@ def nag_ls(A, y, num_iterations, max_eigen, min_eigen=0, l2_regularization=0,
 
     """
     
+    # Calculate the maximum eigenvalue of A.T*A if it wasn't provided and show
+    # a warning when this takes more than 10 seconds
+    if max_eigen is None:
+        warning_timeout = 10
+        start_time = time.time()
+        _, max_eigen = ATA_max_eigenvalue(A, num_iterations=50, stop_ratio=1.01)
+        calculation_time = time.time() - start_time
+        
+        if calculation_time >= warning_timeout:
+            warnings.warn(
+            "The max_eigen parameter was not set when calling the nag_ls"
+            " function, so it had to be calculated, which took"
+            f" {calculation_time:.1f} seconds. Calculate the maximum"
+            " eigenvalue once for your geometry with"
+            " ts_algorithms.ATA_max_eigenvalue and then store it to skip this"
+            " step when using nag_ls on the same geometry multiple times."
+        )
+    
     L = 2*(max_eigen + l2_regularization)   # Lipschitz constant of the gradient
     mu = 2*(min_eigen + l2_regularization)  # (strong) convexity parameter
-    
+
+
+    # Allocate memory on the right device for all used vectors
     dev = y.device
-    residual = torch.zeros(A.range_shape, device=dev)
+    y_tmp = torch.zeros(A.range_shape, device=dev, dtype=torch.float32)
     if x_init is None:
-        x_cur = torch.zeros(A.domain_shape, device=dev)
+        x_cur = torch.zeros(A.domain_shape, device=dev, dtype=torch.float32)
     else:
         with torch.cuda.device_of(y):
             x_cur = x_init.clone()
     x_prev = x_cur.clone()
-    z = torch.zeros(A.domain_shape, device=dev)
-    z_half_grad = torch.zeros(A.domain_shape, device=dev)
+    z = torch.zeros(A.domain_shape, device=dev, dtype=torch.float32)
+    z_half_grad = torch.zeros(A.domain_shape, device=dev, dtype=torch.float32)
 
+
+    # Depending on whether the function is strongly convex initialize the
+    # variables related to the step size 
     if mu == 0:
         step_lambda = 0
         next_step_lambda = (1 + math.sqrt(1 + 4 * step_lambda * step_lambda)) / 2
     else:
         Q_sqrt = math.sqrt(L/mu)
         frac = (Q_sqrt - 1) / (Q_sqrt + 1)
-        
-    for _ in tqdm.trange(num_iterations, disable=not progress_bar):
-        A(z, out=residual)
-        residual -= y
+
+
+    # Main loop of the algorithm
+    # tqdm is used to show a progress bar
+    for iteration in tqdm.trange(num_iterations, disable=not progress_bar):
+        # take a step in the direction of the gradient
+        A(z, out=y_tmp)
+        y_tmp -= y
         if projection_mask is not None:
-            residual *= projection_mask
-        A.T(residual, out=z_half_grad)
+            y_tmp *= projection_mask
+        A.T(y_tmp, out=z_half_grad)
         z_half_grad += l2_regularization * z
         if volume_mask is not None:
             z_half_grad *= volume_mask
@@ -139,6 +142,7 @@ def nag_ls(A, y, num_iterations, max_eigen, min_eigen=0, l2_regularization=0,
         if (min_constraint is not None) or (max_constraint is not None):
             x_cur.clamp_(min_constraint, max_constraint)
         
+        # Apply momentum
         if mu == 0:
             step_lambda = next_step_lambda
             next_step_lambda = (1 + math.sqrt(1 + 4 * step_lambda * step_lambda)) / 2
@@ -146,6 +150,11 @@ def nag_ls(A, y, num_iterations, max_eigen, min_eigen=0, l2_regularization=0,
             z[...] = ((1 - step_gamma) * x_cur) + (step_gamma * x_prev)
         else:
             z[...] = ((1 + frac) * x_cur) - (frac * x_prev)
+            
+        # Call all callbacks and stop iterating if one of the callbacks
+        # indicates to stop
+        if call_all_callbacks(callbacks, x_cur, iteration):
+            break
             
     return x_cur
     

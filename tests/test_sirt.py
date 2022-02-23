@@ -17,7 +17,8 @@ def test_sirt():
     y = A(x)
 
     sirt(A, y, 10)
-    
+
+
 def test_x_init():
     vg = ts.volume(shape=32)
     pg = ts.parallel(angles=32, shape=48)
@@ -40,7 +41,8 @@ def test_x_init():
     result_steps = sirt(A, y, 10, x_init = result_steps)
     result_steps = sirt(A, y, 10, x_init = result_steps)
     assert torch.equal(result_together, result_steps)
-    
+
+
 def test_projection_mask():
     vg = ts.volume(shape=32)
     pg = ts.parallel(angles=32, shape=48)
