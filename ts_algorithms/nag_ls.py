@@ -94,7 +94,8 @@ def nag_ls(A, y, num_iterations, max_eigen=None, min_eigen=0, l2_regularization=
             f" {calculation_time:.1f} seconds. Calculate the maximum"
             " eigenvalue once for your geometry with"
             " ts_algorithms.ATA_max_eigenvalue and then store it to skip this"
-            " step when using nag_ls on the same geometry multiple times."
+            " step when using nag_ls on the same geometry multiple times. \n"
+            f" The calulated max_eigen parameter was {max_eigen}"
         )
     
     L = 2*(max_eigen + l2_regularization)   # Lipschitz constant of the gradient
