@@ -14,11 +14,6 @@ def nag_ls(A, y, num_iterations, max_eigen=None, min_eigen=0, l2_regularization=
     """Apply nesterov accelerated gradient descent (nag) [1](chapter 2.2) to
        solve the (possibly l2-regularized) least squares (ls) problem:
        minimize over x: ||Ax - y||^2 + l2_regularization * ||x||^2
-    
-    Which variant of the algorithm is used depends on whether the regularized
-    problem is strictly convex or not. When both min_eigen and 
-    l2_regularization are 0 a non-strictly convex version [2] of nag is used.
-    Otherwise a strictly convex version [3] is used.
 
     If `y` is located on GPU, the entire algorithm is executed on a single GPU.
     If `y` is located in RAM (CPU in PyTorch parlance), then only the
@@ -27,7 +22,6 @@ def nag_ls(A, y, num_iterations, max_eigen=None, min_eigen=0, l2_regularization=
     [1] Nesterov, Y. (2003). Introductory lectures on convex optimization: A
     basic course (Vol. 87). Springer Science & Business Media.
     [2] https://blogs.princeton.edu/imabandit/2013/04/01/acceleratedgradientdescent/
-    [3] https://blogs.princeton.edu/imabandit/2014/03/06/nesterovs-accelerated-gradient-descent-for-smooth-and-strongly-convex-optimization/
 
     :param A: `tomosipo.Operator`
         Projection operator
@@ -40,8 +34,8 @@ def nag_ls(A, y, num_iterations, max_eigen=None, min_eigen=0, l2_regularization=
         constant of the gradient of the least squares problem not considering
         regularization. Can be calculated using ts.algorithms.ATA_max_eigenvalue
     :param min_eigen: `float`
-        Smallest eigenvalue of A.T*A / strict convexity parameter not
-        considering regularization
+        *Currently unused* Smallest eigenvalue of A.T*A / strict convexity
+        parameter not considering regularization
     :param l2_regularization: `float`
         amount of l2-regularization
     :param min_constraint: `float`
@@ -99,8 +93,6 @@ def nag_ls(A, y, num_iterations, max_eigen=None, min_eigen=0, l2_regularization=
         )
     
     L = 2*(max_eigen + l2_regularization)   # Lipschitz constant of the gradient
-    mu = 2*(min_eigen + l2_regularization)  # (strong) convexity parameter
-
 
     # Allocate memory on the right device for all used vectors
     dev = y.device
@@ -115,14 +107,9 @@ def nag_ls(A, y, num_iterations, max_eigen=None, min_eigen=0, l2_regularization=
     z_half_grad = torch.zeros(A.domain_shape, device=dev, dtype=torch.float32)
 
 
-    # Depending on whether the function is strongly convex initialize the
-    # variables related to the step size 
-    if mu == 0:
-        step_lambda = 0
-        next_step_lambda = (1 + math.sqrt(1 + 4 * step_lambda * step_lambda)) / 2
-    else:
-        Q_sqrt = math.sqrt(L/mu)
-        frac = (Q_sqrt - 1) / (Q_sqrt + 1)
+    # Initialize the variables related to the step size 
+    step_lambda = 0
+    next_step_lambda = (1 + math.sqrt(1 + 4 * step_lambda * step_lambda)) / 2
 
 
     # Main loop of the algorithm
@@ -144,13 +131,10 @@ def nag_ls(A, y, num_iterations, max_eigen=None, min_eigen=0, l2_regularization=
             x_cur.clamp_(min_constraint, max_constraint)
         
         # Apply momentum
-        if mu == 0:
-            step_lambda = next_step_lambda
-            next_step_lambda = (1 + math.sqrt(1 + 4 * step_lambda * step_lambda)) / 2
-            step_gamma = (1 - step_lambda) / next_step_lambda
-            z[...] = ((1 - step_gamma) * x_cur) + (step_gamma * x_prev)
-        else:
-            z[...] = ((1 + frac) * x_cur) - (frac * x_prev)
+        step_lambda = next_step_lambda
+        next_step_lambda = (1 + math.sqrt(1 + 4 * step_lambda * step_lambda)) / 2
+        step_gamma = (1 - step_lambda) / next_step_lambda
+        z[...] = ((1 - step_gamma) * x_cur) + (step_gamma * x_prev)
             
         # Call all callbacks and stop iterating if one of the callbacks
         # indicates to stop
