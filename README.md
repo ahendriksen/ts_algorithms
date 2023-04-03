@@ -1,7 +1,7 @@
 # Tomosipo algorithms
 
 A collection of common tomographic reconstruction algorithms
-implemented using the tomosipo package.
+implemented using the [tomosipo](https://github.com/ahendriksen/tomosipo) package.
 
 The following algorithms are implemented:
 
