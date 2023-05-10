@@ -21,8 +21,8 @@ def test_scale_property():
         print(s)
         S = ts.scale(s)
         A_s = ts.operator(
-            S * A.volume_geometry,
-            S * A.projection_geometry.to_vec())
+            S * A.domain,
+            S * A.range.to_vec())
 
         # Relatively large tolerances, because
         # 1. converting to vector geometry incurs a loss;
@@ -53,7 +53,7 @@ def test_scale_property_exact():
     for s in [1.0, 0.5, 2.0, 4.0]:  # only "even" floating point numbers
         print(s)
         S = ts.scale(s)
-        A_s = ts.operator(S * A.volume_geometry, S * A.projection_geometry)
+        A_s = ts.operator(S * A.domain, S * A.range)
 
         assert torch.allclose(y * s, A_s(x))     # smaller tolerances
         assert torch.allclose(bp, A_s.T(y / s))  # smaller tolerances

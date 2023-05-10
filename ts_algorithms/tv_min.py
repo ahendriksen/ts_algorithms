@@ -104,8 +104,8 @@ def tv_min2d(A, y, lam, num_iterations=500, L=None, non_negativity=False, progre
     # intensity. The validity of this appraoch is checked in the
     # tests, see `test_scale_property` in test_tv_min.py.
     scale = operator_norm(A)
-    S = ts.scale(1 / scale, pos=A.volume_geometry.pos)
-    A = ts.operator(S * A.volume_geometry, S * A.projection_geometry.to_vec())
+    S = ts.scale(1 / scale, pos=A.domain.pos)
+    A = ts.operator(S * A.domain, S * A.range.to_vec())
     y = y / scale
 
     if L is None:
