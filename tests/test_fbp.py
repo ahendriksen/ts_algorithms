@@ -54,7 +54,6 @@ def test_fbp_filter_error_handling():
         fbp(A, y, padded=False, filter=torch.ones(y.shape[-1] + 1))
 
     # Padded
-    fbp(A, y, padded=True, filter=torch.ones(y.shape[-1]))
     fbp(A, y, padded=True, filter=torch.ones(2 * y.shape[-1]))
     with pytest.raises(ValueError):
         fbp(A, y, padded=True, filter=torch.ones(y.shape[-1] + 1))

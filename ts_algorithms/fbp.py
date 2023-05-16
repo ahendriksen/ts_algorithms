@@ -34,16 +34,6 @@ def unpad(sino, width):
     return sino[..., pad_left:pad_left+width]
 
 
-def pad_filter(h):
-    width = 2 * len(h)
-    out = h.new_zeros(width)
-    w = len(h)
-    out[0] = h[0]
-    out[1:w] = h[1:]
-    out[-w + 1:] = torch.flip(h[1:], dims=(0,))
-    return out
-
-
 def ram_lak(n):
     # Returns a ram_lak filter in filter space.
     # Complex component equals zero.
@@ -82,19 +72,18 @@ def filter_sino(y, filter=None, padded=True):
     # Add padding
     original_width = y.shape[-1]
 
+    if padded:
+        y = pad(y)
+
     if filter is None:
         # Use Ram-Lak filter by default.
         filter = ram_lak(y.shape[-1]).to(y.device)
 
-    if padded:
-        y = pad(y)
-        if len(filter) == original_width:
-            filter = pad_filter(filter)
-
     if filter.shape != y.shape[-1:]:
         raise ValueError(
             f"Filter is the wrong length. Expected length: {y.shape[-1]}. "
-            f"Got: {filter.shape}"
+            f"Got: {filter.shape}. "
+            f"Sinogram padding argument is set to {padded}."
         )
 
     # Fourier transform of sinogram and filter.
@@ -168,16 +157,10 @@ def fbp(A, y, padded=True, filter=None, batch_size=10, overwrite_y=False):
     else:
         y_filtered = torch.empty_like(y)
 
-    if filter is None:
-        filter = ram_lak(y.shape[-1]).to(y.device)
-
     if padded:
         expected_filter_width = total_padded_width(y.shape[-1])
     else:
         expected_filter_width = y.shape[-1]
-
-    if padded and len(filter) != expected_filter_width:
-        filter = pad_filter(filter)
 
     if filter is not None and filter.shape[-1] != expected_filter_width:
         raise ValueError(
