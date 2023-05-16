@@ -4,36 +4,6 @@ from torch.fft import rfft, irfft
 import numpy as np
 
 
-def total_padded_width(width):
-    (pad_l, pad_r) = num_pad(width)
-    return pad_l + width + pad_r
-
-
-def num_pad(width):
-    # If the width of the filter equals `width`, then we need at least
-    # `width - 1` padding. For performance reasons, we prefer the data
-    # we feed into the FFT to have an even length. So we use `width`.
-    num_padding = width
-    num_pad_left = num_padding // 2
-    return (num_pad_left, num_padding - num_pad_left)
-
-
-def pad(sino):
-    (num_slices, num_angles, num_pixels) = sino.shape
-    num_pad_left, num_pad_right = num_pad(num_pixels)
-    num_padding = num_pad_left + num_pad_right
-    M = num_pixels + num_padding
-
-    tmp_sino = sino.new_zeros((num_slices, num_angles, M))
-    tmp_sino[:, :, num_pad_left:num_pad_left + num_pixels] = sino
-    return tmp_sino
-
-
-def unpad(sino, width):
-    pad_left, pad_right = num_pad(width)
-    return sino[..., pad_left:pad_left+width]
-
-
 def ram_lak(n):
     # Returns a ram_lak filter in filter space.
     # Complex component equals zero.
@@ -84,17 +54,17 @@ def filter_sino(y, filter=None, padded=True, batch_size=10, overwrite_y=False):
 
     original_width = y.shape[-1]
     if padded:
-        expected_filter_width = total_padded_width(original_width)
+        filter_width = 2 * original_width
     else:
-        expected_filter_width = original_width
+        filter_width = original_width
 
     if filter is None:
         # Use Ram-Lak filter by default.
-        filter = ram_lak(expected_filter_width).to(y.device)
-    elif filter.shape[-1] != expected_filter_width:
+        filter = ram_lak(filter_width).to(y.device)
+    elif filter.shape[-1] != filter_width:
         raise ValueError(
             f"Filter is the wrong length. "
-            f"Expected length: {expected_filter_width}. "
+            f"Expected length: {filter_width}. "
             f"Got: {filter.shape}. "
             f"Sinogram padding argument is set to {padded}"
         )
@@ -102,24 +72,16 @@ def filter_sino(y, filter=None, padded=True, batch_size=10, overwrite_y=False):
 
     # Filter the sinogram in batches
     def filter_batch(batch):
-        if padded:
-            batch = pad(batch)
-
-        batch_rfft = rfft(batch)
-
+        # Compute real FFT using zero-padding of the signal
+        batch_rfft = rfft(batch, n=filter_width)
         # Filter the sinogram using complex multiplication:
         batch_rfft *= filter_rfft
-
         # Invert fourier transform.
         # Make sure inverted data matches the shape of y (for
         # sinograms with odd width).
-        batch_filtered = irfft(batch_rfft, n=batch.shape[-1])
-
+        batch_filtered = irfft(batch_rfft, n=filter_width)
         # Remove padding
-        if padded:
-            batch_filtered = unpad(batch_filtered, original_width)
-
-        return batch_filtered
+        return batch_filtered[..., :original_width]
 
     if overwrite_y:
         y_filtered = y
