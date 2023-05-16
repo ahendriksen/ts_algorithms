@@ -51,7 +51,7 @@ def ram_lak(n):
     return filter
 
 
-def filter_sino(y, filter=None, padded=True):
+def filter_sino(y, filter=None, padded=True, batch_size=10, overwrite_y=False):
     """Filter sinogram for use in FBP
 
     :param y: `torch.tensor`
@@ -65,42 +65,71 @@ def filter_sino(y, filter=None, padded=True):
         By default, the reconstruction is zero-padded as it is
         filtered. Padding can be skipped by setting `padded=False`.
 
+    :param batch_size: `int`
+        Specifies how many projection images will be filtered at the
+        same time. Increasing the batch_size will increase the used
+        memory. Computation time can be marginally improved by
+        tweaking this parameter.
+
+    :param overwrite_y: `bool`
+        Specifies whether to overwrite y with the filtered version
+        while running this function. Choose `overwrite_y=False` if you
+        still want to use y after calling this function. Choose
+        `overwrite_y=True` if you would otherwise run out of memory.
+
     :returns:
         A sinogram filtered with the provided filter.
     :rtype: `torch.tensor`
     """
-    # Add padding
-    original_width = y.shape[-1]
 
+    original_width = y.shape[-1]
     if padded:
-        y = pad(y)
+        expected_filter_width = total_padded_width(original_width)
+    else:
+        expected_filter_width = original_width
 
     if filter is None:
         # Use Ram-Lak filter by default.
-        filter = ram_lak(y.shape[-1]).to(y.device)
-
-    if filter.shape != y.shape[-1:]:
+        filter = ram_lak(expected_filter_width).to(y.device)
+    elif filter.shape[-1] != expected_filter_width:
         raise ValueError(
-            f"Filter is the wrong length. Expected length: {y.shape[-1]}. "
+            f"Filter is the wrong length. "
+            f"Expected length: {expected_filter_width}. "
             f"Got: {filter.shape}. "
-            f"Sinogram padding argument is set to {padded}."
+            f"Sinogram padding argument is set to {padded}"
         )
+    filter_rfft = rfft(filter)
 
-    # Fourier transform of sinogram and filter.
-    y_f = rfft(y)
-    h_f = rfft(filter)
+    # Filter the sinogram in batches
+    def filter_batch(batch):
+        if padded:
+            batch = pad(batch)
 
-    # Filter the sinogram using complex multiplication:
-    y_f *= h_f
+        batch_rfft = rfft(batch)
 
-    # Invert fourier transform.
-    # Make sure inverted data matches the shape of y (for
-    # sinograms with odd width).
-    y_filtered = irfft(y_f, n=y.shape[-1])
+        # Filter the sinogram using complex multiplication:
+        batch_rfft *= filter_rfft
 
-    # Remove padding
-    if padded:
-        y_filtered = unpad(y_filtered, original_width)
+        # Invert fourier transform.
+        # Make sure inverted data matches the shape of y (for
+        # sinograms with odd width).
+        batch_filtered = irfft(batch_rfft, n=batch.shape[-1])
+
+        # Remove padding
+        if padded:
+            batch_filtered = unpad(batch_filtered, original_width)
+
+        return batch_filtered
+
+    if overwrite_y:
+        y_filtered = y
+    else:
+        y_filtered = torch.empty_like(y)
+
+    for batch_start in range(0, y.shape[1], batch_size):
+        batch_end = min(batch_start + batch_size, y.shape[1])
+        batch = y[:, batch_start:batch_end, :]
+        y_filtered[:, batch_start:batch_end, :] = filter_batch(batch)
 
     return y_filtered
 
@@ -152,30 +181,8 @@ def fbp(A, y, padded=True, filter=None, batch_size=10, overwrite_y=False):
 
     """
 
-    if overwrite_y:
-        y_filtered = y
-    else:
-        y_filtered = torch.empty_like(y)
-
-    if padded:
-        expected_filter_width = total_padded_width(y.shape[-1])
-    else:
-        expected_filter_width = y.shape[-1]
-
-    if filter is not None and filter.shape[-1] != expected_filter_width:
-        raise ValueError(
-            f"Filter is the wrong length. "
-            f"Expected length: {expected_filter_width}. "
-            f"Got: {filter.shape}. "
-        )
-
-    # Filter the sinogram in batches
-    for batch_start in range(0, y.shape[1], batch_size):
-        batch_end = min(batch_start + batch_size, y.shape[1])
-        batch = y[:, batch_start:batch_end, :]
-        batch_filtered = filter_sino(batch, filter=filter, padded=padded)
-
-        y_filtered[:, batch_start:batch_end, :] = batch_filtered
+    y_filtered = filter_sino(y, filter=filter, padded=padded,
+                             batch_size=batch_size, overwrite_y=overwrite_y)
 
     # Backproject the filtered sinogram to obtain a reconstruction
     rec = A.T(y_filtered)
