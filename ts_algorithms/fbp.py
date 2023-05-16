@@ -5,8 +5,21 @@ import numpy as np
 
 
 def ram_lak(n):
-    # Returns a ram_lak filter in filter space.
-    # Complex component equals zero.
+    """Compute Ram-Lak filter in real space
+
+    Computes a real space Ram-Lak filter optimized w.r.t. discretization bias
+    introduced if a naive ramp function is used to filter projections in
+    reciprocal space. For details, see section 3.3.3 in Kak & Staley,
+    "Principles of Computerized Tomographic Imaging", SIAM, 2001.
+
+    :param n: `int`
+        Length of the filter.
+
+    :returns:
+        Real space Ram-Lak filter of length n.
+    :rtype: `torch.tensor`
+    """
+
     filter = torch.zeros(n)
     filter[0] = 0.25
     # even indices are zero
