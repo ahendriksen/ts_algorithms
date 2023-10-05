@@ -25,12 +25,9 @@ Python 3.
 
 Install with:
 ```
-# Pytorch, CUDA, ASTRA and tqdm
-conda install -n tomosipo pytorch=1.8 cudatoolkit=10.2 astra-toolbox tqdm -c pytorch -c astra-toolbox/label/dev
-source activate tomosipo
-# Install tomosipo
-pip install git+https://github.com/ahendriksen/tomosipo.git
-# Tomosipo algorithms
+conda create -n tomosipo tomosipo pytorch==2.0.1 pytorch-cuda=11.7 tqdm -c pytorch -c nvidia -c astra-toolbox/label/dev -c aahendriksen -c defaults
+
+conda activate tomosipo
 pip install git+https://github.com/ahendriksen/ts_algorithms.git
 ```
 
