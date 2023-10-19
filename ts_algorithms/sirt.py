@@ -12,7 +12,7 @@ def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None, x_init=
     If `y` is located on GPU, the entire algorithm is executed on a single GPU.
 
     IF `y` is located in RAM (CPU in PyTorch parlance), then only the
-    foward and backprojection are executed on GPU.
+    forward and backprojection are executed on GPU.
 
     :param A: `tomosipo.Operator`
         Projection operator
@@ -39,7 +39,7 @@ def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None, x_init=
     :param progress_bar: `bool`
         Whether to show a progress bar on the command line interface.
         Default: False
-    :param callbacks: 
+    :param callbacks:
         Iterable containing functions or callable objects. Each callback will
         be called every iteration with the current estimate and iteration
         number as arguments. If any callback returns True, the algorithm stops
@@ -62,7 +62,7 @@ def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None, x_init=
     R = A(x_tmp)
     R[R < ts.epsilon] = math.inf
     R.reciprocal_()
-    
+
     if x_init is None:
         x_cur = torch.zeros(A.domain_shape, device=dev)
     else:
@@ -72,7 +72,7 @@ def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None, x_init=
     if volume_mask is not None:
         x_cur *= volume_mask
         C *= volume_mask
-        
+
     if projection_mask is not None:
         R *= projection_mask
 
@@ -85,7 +85,7 @@ def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None, x_init=
         x_cur -= x_tmp
         if (min_constraint is not None) or (max_constraint is not None):
             x_cur.clamp_(min_constraint, max_constraint)
-            
+
         # Call all callbacks and stop iterating if one of the callbacks
         # indicates to stop
         if call_all_callbacks(callbacks, x_cur, iteration):
