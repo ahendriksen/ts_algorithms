@@ -8,6 +8,7 @@ The following algorithms are implemented:
 - FBP
 - FDK
 - SIRT
+- EM: Maximum likelihood expectation-maximization algorithm
 - tv_min: Total-variation regularized least squares with the Champbolle Pock method
 - nag_ls: l2-regularized least squares with the Nesterov accelerated gradient descent(nag) method
 
