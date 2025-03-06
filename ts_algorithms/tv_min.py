@@ -192,7 +192,9 @@ def l2con_tv_min2d(A, y, eps, num_iterations=500, tradeoff = 1.0, L=None, progre
     q = grad_2D(u)                  # contains zeros (and has correct shape)
     u_avg = torch.clone(u)
 
-    for iteration in tqdm.trange(num_iterations, disable=not progress_bar):
+
+    pbar = tqdm.trange(num_iterations, disable=not progress_bar)
+    for iteration in pbar:
 
         """
             Algorithm 7 in the paper cited at the top of this file suggest:
@@ -203,15 +205,17 @@ def l2con_tv_min2d(A, y, eps, num_iterations=500, tradeoff = 1.0, L=None, progre
         p = (1 - s * eps/(max(torch.norm(p + s * (A(u_avg)- y)), s*eps)))*(p + s * (A(u_avg)- y))
         q = clip(q + s * grad_2D(u_avg), 1)
 
-
-        # TODO Print duality gap and feasibility as part of the tqdm progress bar
-        #primal = torch.norm(grad_2D(u))
-        #dual = -eps*torch.norm(p) - torch.inner(p.flatten(), y.flatten())
-        #print(primal - dual)
         
         u_new = u - (t * A.T(p) + t * grad_2D_T(q))
         u_avg = u_new + theta * (u_new - u)
         u = u_new
+
+        if progress_bar: # Only compute convergence statistics when they will actually be shown
+            primal_obj = torch.norm(grad_2D(u))
+            dual_obj = -eps*torch.norm(p) - torch.inner(p.flatten(), y.flatten())
+            residual = torch.norm(A(u) - y)
+            pbar.set_postfix(duality_gap = primal_obj - dual_obj,
+                            residual = residual)
 
         # Call all callbacks and stop iterating if one of the callbacks
         # indicates to stop
@@ -219,4 +223,3 @@ def l2con_tv_min2d(A, y, eps, num_iterations=500, tradeoff = 1.0, L=None, progre
             break
 
     return u
-    
