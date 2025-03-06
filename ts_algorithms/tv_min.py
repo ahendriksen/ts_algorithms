@@ -135,3 +135,88 @@ def tv_min2d(A, y, lam, num_iterations=500, L=None, non_negativity=False, progre
             break
 
     return u
+
+
+def l2con_tv_min2d(A, y, eps, num_iterations=500, tradeoff = 1.0, L=None, progress_bar=False, callbacks=()):
+    """Computes the total-variation minimization using Chambolle-Pock
+
+    Assumes that the data is a single 2D slice. A 3D version with 3D
+    gradients is work in progress.
+
+    :param A: `tomosipo.Operator`
+        Projection operator
+    :param y: `torch.Tensor`
+        Projection data
+    :param eps: `float`
+        Upper bound on the residual.
+    :param num_iterations: `int`
+        Number of iterations
+    :param tradeoff: `float`
+        Trade-off between the primal and dual steps of Chambolle-Pock.
+        Default: 1.0
+    :param L:
+        operator norm of operator A
+    :param progress_bar: `bool`
+        Whether to show a progress bar on the command line interface.
+        Default: False
+    :param callbacks: 
+        Iterable containing functions or callable objects. Each callback will
+        be called every iteration with the current estimate and iteration
+        number as arguments. If any callback returns True, the algorithm stops
+        after this iteration. This can be used for logging, tracking or
+        alternative stopping conditions.
+    :returns:
+    :rtype:
+
+    """
+
+    dev = y.device
+
+    # Normalize the forward operator and data to improve conditioning.
+    # See comment in 'tv_min2d' above.
+    scale = operator_norm(A)
+    S = ts.scale(1 / scale, pos=A.domain.pos)
+    A = ts.operator(S * A.domain, S * A.range.to_vec())
+    y = y / scale
+    eps = eps / scale
+
+    if L is None:
+        L = operator_norm_plus_grad(A, num_iter=100)
+
+    t = tradeoff / L
+    s = 1.0 / (L*tradeoff)
+    theta = 1
+
+    u = torch.zeros(A.domain_shape, device=dev)
+    p = torch.zeros(A.range_shape, device=dev)
+    q = grad_2D(u)                  # contains zeros (and has correct shape)
+    u_avg = torch.clone(u)
+
+    for iteration in tqdm.trange(num_iterations, disable=not progress_bar):
+
+        """
+            Algorithm 7 in the paper cited at the top of this file suggest:
+            p = max(torch.norm(p + s * (A(u_avg)- y)) - s * eps, 0.0)*(p + s * (A(u_avg)- y)).
+            However, this formula/proximal operator is incorrect.
+        """
+
+        p = (1 - s * eps/(max(torch.norm(p + s * (A(u_avg)- y)), s*eps)))*(p + s * (A(u_avg)- y))
+        q = clip(q + s * grad_2D(u_avg), 1)
+
+
+        # TODO Print duality gap and feasibility as part of the tqdm progress bar
+        #primal = torch.norm(grad_2D(u))
+        #dual = -eps*torch.norm(p) - torch.inner(p.flatten(), y.flatten())
+        #print(primal - dual)
+        
+        u_new = u - (t * A.T(p) + t * grad_2D_T(q))
+        u_avg = u_new + theta * (u_new - u)
+        u = u_new
+
+        # Call all callbacks and stop iterating if one of the callbacks
+        # indicates to stop
+        if call_all_callbacks(callbacks, u, iteration):
+            break
+
+    return u
+    
