@@ -119,8 +119,9 @@ def tv_min2d(A, y, lam, num_iterations=500, L=None, non_negativity=False, progre
     p = torch.zeros(A.range_shape, device=dev)
     q = grad_2D(u)                  # contains zeros (and has correct shape)
     u_avg = torch.clone(u)
-
-    for iteration in tqdm.trange(num_iterations, disable=not progress_bar):
+    
+    pbar = tqdm.trange(num_iterations, disable=not progress_bar)
+    for iteration in pbar:
         p = (p + s * (A(u_avg) - y)) / (1 + s)
         q = clip(q + s * grad_2D(u_avg), lam)
         u_new = u - (t * A.T(p) + t * grad_2D_T(q))
@@ -129,6 +130,12 @@ def tv_min2d(A, y, lam, num_iterations=500, L=None, non_negativity=False, progre
         u_avg = u_new + theta * (u_new - u)
         u = u_new
 
+        if progress_bar: # Only compute convergence statistics when they will actually be shown
+            primal_obj = torch.norm(A(u)-y)**2 + lam*torch.norm(grad_2D(u_avg), p=1)
+            dual_obj = -0.5*torch.norm(p)**2 - torch.inner(p.flatten(), y.flatten())
+            pbar.set_postfix(duality_gap = (primal_obj - dual_obj).item())
+
+        
         # Call all callbacks and stop iterating if one of the callbacks
         # indicates to stop
         if call_all_callbacks(callbacks, u, iteration):
@@ -214,8 +221,8 @@ def l2con_tv_min2d(A, y, eps, num_iterations=500, tradeoff = 1.0, L=None, progre
             primal_obj = torch.norm(grad_2D(u))
             dual_obj = -eps*torch.norm(p) - torch.inner(p.flatten(), y.flatten())
             residual = torch.norm(A(u) - y)
-            pbar.set_postfix(duality_gap = primal_obj - dual_obj,
-                            residual = residual)
+            pbar.set_postfix(duality_gap = (primal_obj - dual_obj).item(),
+                            residual = residual.item())
 
         # Call all callbacks and stop iterating if one of the callbacks
         # indicates to stop
