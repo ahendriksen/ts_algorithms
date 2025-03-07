@@ -22,7 +22,7 @@ import tomosipo.torch_support
 from .sirt import sirt
 from .em import em
 from .fbp import fbp
-from .tv_min import tv_min2d
+from .tv_min import tv_min2d, l2con_tv_min2d
 from .operators import operator_norm, ATA_max_eigenvalue
 from .fdk import fdk
 from .nag_ls import nag_ls
