@@ -5,9 +5,9 @@ import tqdm
 from .callbacks import call_all_callbacks
 
 
-def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None, x_init=None, volume_mask=None,
+def em(A, y, num_iterations, x_init=None, volume_mask=None,
     projection_mask=None, progress_bar=False, callbacks=()):
-    """Execute the SIRT algorithm
+    """Execute the (Maximum Likelihood) Expectation-Maximization algorithm
 
     If `y` is located on GPU, the entire algorithm is executed on a single GPU.
 
@@ -20,14 +20,10 @@ def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None, x_init=
         Projection data
     :param num_iterations: `int`
         Number of iterations
-    :param min_constraint: `float`
-        Minimum value enforced at each iteration. Setting to None skips this step.
-    :param max_constraint: `float`
-        Maximum value enforced at each iteration. Setting to None skips this step.
     :param x_init: `torch.Tensor`
-        Initial value for the solution. Setting to None will start with zeros.
+        Initial value for the solution. Setting to None will start with ones.
         Setting x_init to a previously found solution can be useful to
-        continue with more iterations of SIRT.
+        continue with more iterations of EM.
     :param volume_mask: `torch.Tensor`
         Mask for the reconstruction volume. All voxels outside of the mask will
         be assumed to not contribute to the projection data.
@@ -46,7 +42,7 @@ def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None, x_init=
         after this iteration. This can be used for logging, tracking or
         alternative stopping conditions.
     :returns: `torch.Tensor`
-        A reconstruction of the volume using num_iterations iterations of SIRT
+        A reconstruction of the volume using num_iterations iterations of EM
     :rtype:
 
     """
@@ -57,34 +53,26 @@ def sirt(A, y, num_iterations, min_constraint=None, max_constraint=None, x_init=
     C = A.T(y_tmp)
     C[C < ts.epsilon] = math.inf
     C.reciprocal_()
-    # Compute R
-    x_tmp = torch.ones(A.domain_shape, device=dev)
-    R = A(x_tmp)
-    R[R < ts.epsilon] = math.inf
-    R.reciprocal_()
 
     if x_init is None:
-        x_cur = torch.zeros(A.domain_shape, device=dev)
+        x_cur = torch.ones(A.domain_shape, device=dev)
     else:
         with torch.cuda.device_of(y):
             x_cur = x_init.clone()
 
     if volume_mask is not None:
         x_cur *= volume_mask
-        C *= volume_mask
 
-    if projection_mask is not None:
-        R *= projection_mask
-
+    x_tmp = torch.empty(A.domain_shape, device=dev)
     for iteration in tqdm.trange(num_iterations, disable=not progress_bar):
         A(x_cur, out=y_tmp)
-        y_tmp -= y
-        y_tmp *= R
+        if projection_mask is not None:
+            y_tmp *= projection_mask
+        y_tmp[y_tmp < ts.epsilon] = math.inf
+        torch.div(y, y_tmp, out=y_tmp)
         A.T(y_tmp, out=x_tmp)
-        x_tmp *= C
-        x_cur -= x_tmp
-        if (min_constraint is not None) or (max_constraint is not None):
-            x_cur.clamp_(min_constraint, max_constraint)
+        x_cur *= x_tmp
+        x_cur *= C
 
         # Call all callbacks and stop iterating if one of the callbacks
         # indicates to stop
