@@ -54,8 +54,7 @@ def operator_norm_plus_grad(A, num_iter=10):
 
 
 def magnitude(z):
-    # Add a small term to avoid division by zero when computing gradients
-    return torch.sqrt(z[:, 0:1] ** 2 + z[:, 1:2] ** 2 + ts.epsilon ** 2)
+    return torch.norm(z, dim=1)
 
 
 def clip(z, lamb):
